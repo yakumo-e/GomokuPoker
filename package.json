@@ -1,0 +1,10 @@
+{
+  "name": "gomoku-poker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "node --check app.js",
+    "dev": "node dev-server.js"
+  }
+}

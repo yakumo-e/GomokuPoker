@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Gomoku Poker</title>
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="topbar" aria-label="ゲーム情報">
+        <div>
+          <p class="eyebrow">Gomoku Poker</p>
+          <h1>五目ポーカー</h1>
+        </div>
+        <div class="status-panel">
+          <span id="connectionStatus">オフライン</span>
+          <strong id="turnLabel">黒の番</strong>
+        </div>
+      </section>
+
+      <section class="play-area">
+        <aside class="side-panel">
+          <div class="pixel-card">
+            <h2>対戦</h2>
+            <div class="room-actions">
+              <button id="newLocalButton" type="button">ローカル開始</button>
+              <button id="createRoomButton" type="button">部屋を作る</button>
+            </div>
+            <label class="field-label" for="roomCodeInput">部屋コード</label>
+            <div class="join-row">
+              <input id="roomCodeInput" autocomplete="off" spellcheck="false" placeholder="例: AB12CD">
+              <button id="joinRoomButton" type="button">参加</button>
+            </div>
+            <p id="roomInfo" class="muted">Firebase設定を入れるとオンライン対戦できます。</p>
+          </div>
+
+          <div class="pixel-card score-card">
+            <h2>手札</h2>
+            <div class="player-strip black">
+              <span>黒</span>
+              <strong id="blackDeckCount">26</strong>
+            </div>
+            <div class="player-strip red">
+              <span>赤</span>
+              <strong id="redDeckCount">26</strong>
+            </div>
+            <div id="hand" class="hand" aria-label="手札"></div>
+            <button id="declareButton" class="declare-button" type="button">勝利宣言</button>
+          </div>
+        </aside>
+
+        <section class="board-wrap" aria-label="盤面">
+          <div id="board" class="board"></div>
+        </section>
+
+        <aside class="side-panel">
+          <div class="pixel-card">
+            <h2>ログ</h2>
+            <ol id="log" class="log"></ol>
+          </div>
+          <div class="pixel-card">
+            <h2>役</h2>
+            <div id="bestHand" class="best-hand">まだ宣言できる役はありません。</div>
+          </div>
+        </aside>
+      </section>
+    </main>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
