@@ -9,9 +9,15 @@
   <body>
     <main class="app-shell">
       <section class="topbar" aria-label="ゲーム情報">
-        <div>
+        <div class="title-block">
           <p class="eyebrow">Gomoku Poker</p>
           <h1>五目ポーカー</h1>
+        </div>
+        <div class="rules-block" aria-label="ルール">
+          <h2>ルール</h2>
+          <p>1ターンに自分のカードを1枚置き、宣言するか相手にターンを渡します。</p>
+          <p>5マスラインに自分のカードが4枚以上、相手が1枚までなら宣言できます。</p>
+          <p>宣言された側は1枚置いてから必ず応戦宣言します。役を比べて勝敗を決めます。</p>
         </div>
         <div class="status-panel">
           <span id="connectionStatus">オフライン</span>
@@ -21,11 +27,30 @@
 
       <section class="play-area">
         <aside class="side-panel">
+          <div class="pixel-card score-card">
+            <h2>カード</h2>
+            <div class="player-strip black">
+              <span>黒 残り</span>
+              <strong id="blackDeckCount">26</strong>
+            </div>
+            <div class="player-strip red">
+              <span>赤 残り</span>
+              <strong id="redDeckCount">26</strong>
+            </div>
+            <div id="hand" class="hand" aria-label="カード一覧"></div>
+            <div class="turn-actions">
+              <button id="declareButton" class="declare-button" type="button">宣言</button>
+              <button id="passButton" class="pass-button" type="button">相手にターンを渡す</button>
+            </div>
+          </div>
+
           <div class="pixel-card">
             <h2>対戦</h2>
             <div class="room-actions">
               <button id="newLocalButton" type="button">ローカル開始</button>
               <button id="createRoomButton" type="button">部屋を作る</button>
+              <button id="resetButton" type="button">盤面リセット</button>
+              <button id="acceptResetButton" type="button" hidden>リセットに同意</button>
             </div>
             <label class="field-label" for="roomCodeInput">部屋コード</label>
             <div class="join-row">
@@ -33,20 +58,6 @@
               <button id="joinRoomButton" type="button">参加</button>
             </div>
             <p id="roomInfo" class="muted">Firebase設定を入れるとオンライン対戦できます。</p>
-          </div>
-
-          <div class="pixel-card score-card">
-            <h2>手札</h2>
-            <div class="player-strip black">
-              <span>黒</span>
-              <strong id="blackDeckCount">26</strong>
-            </div>
-            <div class="player-strip red">
-              <span>赤</span>
-              <strong id="redDeckCount">26</strong>
-            </div>
-            <div id="hand" class="hand" aria-label="手札"></div>
-            <button id="declareButton" class="declare-button" type="button">勝利宣言</button>
           </div>
         </aside>
 
@@ -60,13 +71,14 @@
             <ol id="log" class="log"></ol>
           </div>
           <div class="pixel-card">
-            <h2>役</h2>
+            <h2>宣言状況</h2>
             <div id="bestHand" class="best-hand">まだ宣言できる役はありません。</div>
           </div>
         </aside>
       </section>
     </main>
 
-    <script type="module" src="./app.js"></script>
+    <script src="./firebase-config.js"></script>
+    <script src="./app.js"></script>
   </body>
 </html>
