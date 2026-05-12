@@ -102,7 +102,7 @@ function ensureUntried(node, topK) {
   if (node.untried === null) node.untried = generateChildActions(node.state, topK);
 }
 
-export function mctsSearch(rootState, { iterations = 200, topK = 8, perspective = null } = {}) {
+export function mctsSearch(rootState, { iterations = 200, topK = 8, perspective = null, temperature = 0 } = {}) {
   const perspectiveColor = perspective || rootState.turn;
   const root = new Node(cloneState(rootState), null, null);
 
@@ -122,11 +122,12 @@ export function mctsSearch(rootState, { iterations = 200, topK = 8, perspective 
       node = best;
     }
 
-    // Expansion
+    // Expansion (untried からランダムに1つ取る)
     if (!isTerminal(node.state)) {
       ensureUntried(node, topK);
       if (node.untried.length > 0) {
-        const a = node.untried.pop();
+        const pickIndex = Math.floor(Math.random() * node.untried.length);
+        const a = node.untried.splice(pickIndex, 1)[0];
         const child = new Node(cloneState(node.state), node, a);
         applyAction(child.state, a);
         node.children.push(child);
@@ -148,16 +149,33 @@ export function mctsSearch(rootState, { iterations = 200, topK = 8, perspective 
     }
   }
 
-  // 最頻訪問の子を選ぶ
-  let bestChild = null, bestVisits = -1;
-  for (const c of root.children) {
-    if (c.visits > bestVisits) { bestVisits = c.visits; bestChild = c; }
+  let chosen = null;
+  if (temperature > 0 && root.children.length > 1) {
+    // 訪問数^(1/τ) に比例してサンプリング
+    const weights = root.children.map((c) => Math.pow(c.visits, 1 / temperature));
+    const sum = weights.reduce((a, b) => a + b, 0);
+    if (sum > 0) {
+      let r = Math.random() * sum;
+      for (let i = 0; i < root.children.length; i += 1) {
+        r -= weights[i];
+        if (r <= 0) { chosen = root.children[i]; break; }
+      }
+      if (!chosen) chosen = root.children[root.children.length - 1];
+    }
   }
+  if (!chosen) {
+    // argmax (温度0 / 唯一の子)
+    let bestVisits = -1;
+    for (const c of root.children) {
+      if (c.visits > bestVisits) { bestVisits = c.visits; chosen = c; }
+    }
+  }
+
   const stats = root.children.map((c) => ({
     action: c.action,
     visits: c.visits,
     winRate: c.visits ? c.totalValue / c.visits : 0,
   })).sort((a, b) => b.visits - a.visits);
 
-  return { action: bestChild ? bestChild.action : null, stats, rootVisits: root.visits };
+  return { action: chosen ? chosen.action : null, stats, rootVisits: root.visits };
 }

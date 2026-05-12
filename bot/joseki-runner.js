@@ -43,14 +43,17 @@ async function playMctsGame(opts) {
   const state = createGame();
   const placeSequence = []; // 配置のみ記録 (declare/passは含めない)
   let safety = 200;
+  let placeCount = 0;
 
   while (!isTerminal(state) && safety-- > 0) {
     if (stopRequested) return null;
-    const { action } = mctsSearch(state, { iterations: opts.iterations, topK: opts.topK, perspective: state.turn });
+    const temperature = placeCount < opts.tempPlies ? 1.0 : 0;
+    const { action } = mctsSearch(state, { iterations: opts.iterations, topK: opts.topK, perspective: state.turn, temperature });
     if (!action) break;
     applyAction(state, action);
     if (action.type === "place") {
       placeSequence.push({ color: action.color, index: action.index });
+      placeCount += 1;
     }
     await new Promise((r) => setTimeout(r, 0));
   }
@@ -144,6 +147,7 @@ async function start() {
     iterations: Math.max(20, Math.min(2000, Number(el("#joIterations").value) || 200)),
     topK: Math.max(3, Math.min(20, Number(el("#joTopK").value) || 8)),
     maxPly: Math.max(2, Math.min(20, Number(el("#joMaxPly").value) || 10)),
+    tempPlies: Math.max(0, Math.min(20, Number(el("#joTempPlies").value) || 8)),
   };
   const t0 = performance.now();
   for (let g = 0; g < opts.games; g += 1) {

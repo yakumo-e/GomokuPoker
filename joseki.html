@@ -38,6 +38,7 @@
         <label>1手あたり探索回数 <input id="joIterations" type="number" value="200" min="20" max="2000"></label>
         <label>位置候補数 (topK) <input id="joTopK" type="number" value="8" min="3" max="20"></label>
         <label>記録する最大ply <input id="joMaxPly" type="number" value="10" min="2" max="20"></label>
+        <label>サンプリングするply数 <input id="joTempPlies" type="number" value="8" min="0" max="20" title="先頭からこのply数までは訪問数比例で確率的に選ぶ。多様性を確保。"></label>
         <label>seed (空=ランダム) <input id="joSeed" type="number" placeholder="empty"></label>
       </div>
       <div class="jo-buttons">

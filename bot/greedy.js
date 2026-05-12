@@ -60,7 +60,7 @@ export function candidateCells(state, topK = 12) {
     const my = evalBoard(state, me);
     const them = evalBoard(state, opp);
     state.board[idx] = null;
-    return { idx, score: my - 0.9 * them };
+    return { idx, score: my - 0.9 * them + Math.random() * 0.4 };
   });
   scored.sort((a, b) => b.score - a.score);
   return scored.slice(0, topK).map((s) => s.idx);
@@ -91,7 +91,7 @@ export function greedyPlaceAction(state, color) {
     const my = evalBoard(state, me);
     const them = evalBoard(state, opp);
     state.board[idx] = null;
-    const s = my - 0.9 * them;
+    const s = my - 0.9 * them + Math.random() * 0.4;
     if (s > bestScore) { bestScore = s; bestIdx = idx; }
   }
   const card = pickRank(state, color, bestIdx);
