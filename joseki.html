@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Gomoku Poker - 定石探索</title>
+    <link rel="stylesheet" href="./styles.css">
+    <style>
+      .jo-shell { max-width: 1200px; margin: 0 auto; padding: 16px; }
+      .jo-controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 12px; }
+      .jo-controls label { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
+      .jo-controls input { background: #111218; color: var(--ink); }
+      #joStatus { font-family: "Courier New", monospace; padding: 10px; min-height: 28px; }
+      #joHeatmaps { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; }
+      .jo-heatmap { background: var(--panel); border: 3px solid var(--shadow); padding: 8px; box-shadow: 4px 4px 0 var(--shadow); }
+      .jo-heatmap h3 { margin: 0 0 6px; font-size: 13px; }
+      .jo-grid { display: grid; grid-template-columns: repeat(11, 1fr); gap: 1px; aspect-ratio: 1; background: var(--shadow); }
+      .jo-cell { background: var(--cell); position: relative; display: grid; place-items: center; font-size: 9px; color: #111; font-weight: 700; }
+      .jo-cell.dim { color: rgba(0,0,0,0.5); }
+      .jo-bar { background: var(--panel-2); padding: 8px; }
+      .jo-bar table { width: 100%; border-collapse: collapse; font-size: 12px; }
+      .jo-bar td { padding: 4px 6px; border-bottom: 1px solid var(--line); }
+      .jo-bar td:first-child { color: var(--gold); font-family: monospace; }
+      .jo-bar td:nth-child(2) { text-align: right; }
+      .jo-buttons { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+      .jo-buttons button { padding: 8px 14px; }
+      #joStartButton { background: var(--green); }
+      #joStopButton { background: var(--red); color: #fff; }
+      #joExportButton { background: #8eb6f0; }
+    </style>
+  </head>
+  <body>
+    <main class="jo-shell">
+      <h1>定石探索 (MCTS)</h1>
+      <p class="muted">MCTSプレイヤー同士の自己対戦で定石（高頻度な手筋）を抽出します。重い処理なので試合数を控えめに。</p>
+      <div class="jo-controls">
+        <label>試合数 <input id="joGames" type="number" value="30" min="1" max="500"></label>
+        <label>1手あたり探索回数 <input id="joIterations" type="number" value="200" min="20" max="2000"></label>
+        <label>位置候補数 (topK) <input id="joTopK" type="number" value="8" min="3" max="20"></label>
+        <label>記録する最大ply <input id="joMaxPly" type="number" value="10" min="2" max="20"></label>
+        <label>seed (空=ランダム) <input id="joSeed" type="number" placeholder="empty"></label>
+      </div>
+      <div class="jo-buttons">
+        <button id="joStartButton" type="button">開始</button>
+        <button id="joStopButton" type="button" disabled>停止</button>
+        <button id="joExportButton" type="button">JSON出力</button>
+      </div>
+      <div class="pixel-card" id="joStatus">準備完了</div>
+      <h2 style="margin-top: 18px;">ply別ヒートマップ</h2>
+      <p class="muted" style="font-size: 12px;">数字は出現回数。色が濃いほど高頻度。「黒」「赤」が交互、宣言/passのターンは省略。</p>
+      <div id="joHeatmaps"></div>
+      <h2 style="margin-top: 18px;">頻出オープニング (連続n手)</h2>
+      <div id="joSequences" class="pixel-card jo-bar"></div>
+    </main>
+    <script type="module" src="./bot/joseki-runner.js"></script>
+  </body>
+</html>
