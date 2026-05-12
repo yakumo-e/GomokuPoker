@@ -25,6 +25,7 @@ const els = {
   connectionStatus: document.querySelector("#connectionStatus"),
   blackDeckCount: document.querySelector("#blackDeckCount"),
   redDeckCount: document.querySelector("#redDeckCount"),
+  turnTimer: document.querySelector("#turnTimer"),
 };
 
 let firebaseApi = null;
@@ -33,6 +34,15 @@ let unsubscribeRoom = null;
 let selectedCardId = null;
 let localPlayer = "black";
 let state = createGame();
+
+const TURN_TIMEOUT_MS = 10000;
+let turnTimerId = null;
+let turnTimerDeadline = 0;
+let turnTimerRafId = null;
+let audioCtx = null;
+let prevTurn = null;
+let prevChallengeBy = null;
+let prevWinner = null;
 
 init();
 
@@ -51,6 +61,7 @@ function wireEvents() {
     localPlayer = "black";
     selectedCardId = null;
     state = createGame();
+    resetEventTracking();
     logMessage("ローカル対戦を開始しました。");
     render();
   });
@@ -61,6 +72,16 @@ function wireEvents() {
   els.passButton.addEventListener("click", passTurn);
   els.resetButton.addEventListener("click", requestReset);
   els.acceptResetButton.addEventListener("click", acceptReset);
+
+  // ブラウザの音声制限解除：最初のユーザー操作で AudioContext を起こす
+  const unlock = () => {
+    const ctx = getAudio();
+    if (ctx && ctx.state === "suspended") ctx.resume();
+    window.removeEventListener("click", unlock);
+    window.removeEventListener("keydown", unlock);
+  };
+  window.addEventListener("click", unlock);
+  window.addEventListener("keydown", unlock);
 }
 
 async function initFirebase() {
@@ -149,9 +170,128 @@ function makeCardId(owner, rank, copy) {
 }
 
 function render() {
+  detectEvents();
   renderBoard();
   renderCards();
   renderInfo();
+  updateTurnTimer();
+}
+
+function myColor() {
+  return state.mode === "online" ? localPlayer : state.turn;
+}
+
+function detectEvents() {
+  const curTurn = state.turn;
+  const curChallengeBy = state.challenge?.startedBy || null;
+  const curWinner = state.winner ? state.winner.color : null;
+
+  if (prevTurn !== null && curTurn !== prevTurn && !state.winner) {
+    const meTurn = state.mode === "online" ? curTurn === localPlayer : true;
+    if (meTurn && !state.challenge) {
+      playBeep(880, 0.18);
+      flashTitle();
+    }
+  }
+
+  if (curChallengeBy && curChallengeBy !== prevChallengeBy) {
+    const targeted = state.mode === "online" ? curChallengeBy !== localPlayer : true;
+    if (targeted) {
+      playChime();
+      els.bestHand.classList.remove("alert");
+      void els.bestHand.offsetWidth;
+      els.bestHand.classList.add("alert");
+    }
+  }
+
+  if (curWinner && curWinner !== prevWinner) {
+    playChime();
+  }
+
+  prevTurn = curTurn;
+  prevChallengeBy = curChallengeBy;
+  prevWinner = curWinner;
+}
+
+function resetEventTracking() {
+  prevTurn = state.turn;
+  prevChallengeBy = state.challenge?.startedBy || null;
+  prevWinner = state.winner ? state.winner.color : null;
+}
+
+function flashTitle() {
+  els.turnLabel.classList.remove("flash");
+  void els.turnLabel.offsetWidth;
+  els.turnLabel.classList.add("flash");
+}
+
+function getAudio() {
+  if (audioCtx) return audioCtx;
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return null;
+  audioCtx = new AC();
+  return audioCtx;
+}
+
+function playBeep(freq, dur) {
+  const ctx = getAudio();
+  if (!ctx) return;
+  if (ctx.state === "suspended") ctx.resume();
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.type = "square";
+  osc.frequency.value = freq;
+  osc.connect(gain);
+  gain.connect(ctx.destination);
+  const t = ctx.currentTime;
+  gain.gain.setValueAtTime(0.0001, t);
+  gain.gain.exponentialRampToValueAtTime(0.18, t + 0.01);
+  gain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  osc.start(t);
+  osc.stop(t + dur + 0.02);
+}
+
+function playChime() {
+  playBeep(523, 0.16);
+  setTimeout(() => playBeep(784, 0.16), 140);
+  setTimeout(() => playBeep(1046, 0.22), 280);
+}
+
+function clearTurnTimer() {
+  if (turnTimerId) { clearTimeout(turnTimerId); turnTimerId = null; }
+  if (turnTimerRafId) { cancelAnimationFrame(turnTimerRafId); turnTimerRafId = null; }
+  turnTimerDeadline = 0;
+  els.turnTimer.textContent = "";
+}
+
+function shouldAutoPass() {
+  if (state.winner) return false;
+  if (state.challenge) return false;
+  if (!state.placedThisTurn) return false;
+  if (state.mode === "online" && state.turn !== localPlayer) return false;
+  return true;
+}
+
+function updateTurnTimer() {
+  if (!shouldAutoPass()) { clearTurnTimer(); return; }
+  if (turnTimerId) {
+    renderTimerLabel();
+    return;
+  }
+  turnTimerDeadline = Date.now() + TURN_TIMEOUT_MS;
+  turnTimerId = setTimeout(() => {
+    turnTimerId = null;
+    if (shouldAutoPass()) passTurn();
+  }, TURN_TIMEOUT_MS);
+  renderTimerLabel();
+}
+
+function renderTimerLabel() {
+  const remain = Math.max(0, turnTimerDeadline - Date.now());
+  els.turnTimer.textContent = `自動でターン: ${(remain / 1000).toFixed(1)}秒`;
+  if (remain > 0) {
+    turnTimerRafId = requestAnimationFrame(renderTimerLabel);
+  }
 }
 
 function renderBoard() {
@@ -312,21 +452,21 @@ async function placeCard(index) {
     state.challenge.responsePlaced = true;
     logMessage(`${colorName(color)}が応戦の ${card.rank} を置きました。`);
   } else {
-    logMessage(`${colorName(card.owner)}が ${card.rank} を置きました。宣言するか相手にターンを渡してください。`);
+    logMessage(`${colorName(card.owner)}が ${card.rank} を置きました。`);
   }
-  await syncState();
   render();
+  syncState();
 }
 
 async function passTurn() {
   if (!canPass()) return;
+  clearTurnTimer();
   const color = actionColor();
   state.turn = otherColor(color);
   state.placedThisTurn = false;
   selectedCardId = null;
-  logMessage(`${colorName(color)}がターンを渡しました。`);
-  await syncState();
   render();
+  syncState();
 }
 
 async function declareHand() {
@@ -349,8 +489,9 @@ async function declareHand() {
     finishChallenge();
   }
 
-  await syncState();
+  clearTurnTimer();
   render();
+  syncState();
 }
 
 function finishChallenge() {
@@ -475,6 +616,7 @@ async function createOnlineRoom() {
   state.players.black.uid = firebaseApi.uid;
   localPlayer = "black";
   selectedCardId = null;
+  resetEventTracking();
   roomRef = firebaseApi.doc(firebaseApi.db, "rooms", state.roomCode);
   try {
     await firebaseApi.setDoc(roomRef, {
@@ -525,6 +667,7 @@ async function joinOnlineRoom() {
       return;
     }
     selectedCardId = null;
+    resetEventTracking();
     subscribeRoom();
     els.roomInfo.textContent = `部屋コード: ${code} / あなたは${colorName(localPlayer)}です。`;
     render();
@@ -594,8 +737,8 @@ async function requestReset() {
   if (!roomRef) return;
   state.resetRequest = { by: localPlayer };
   logMessage(`${colorName(localPlayer)}がリセットを要求しました。`);
-  await syncState();
   render();
+  syncState();
 }
 
 async function acceptReset() {
@@ -608,14 +751,15 @@ async function acceptReset() {
   state.players.red.uid = redUid;
   selectedCardId = null;
   logMessage("双方の同意で盤面をリセットしました。");
-  await syncState();
   render();
+  syncState();
 }
 
 function leaveRoom() {
   if (unsubscribeRoom) unsubscribeRoom();
   unsubscribeRoom = null;
   roomRef = null;
+  clearTurnTimer();
   els.roomInfo.textContent = firebaseApi ? "オンライン対戦できます。" : "Firebase設定を入れるとオンライン対戦できます。";
 }
 
