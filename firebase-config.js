@@ -1,12 +1,11 @@
 window.firebaseConfig = {
-  apiKey: "AIzaSyByktW6Zx19v9XsvwuZybM95Nvb_ulP2-M",
-  authDomain: "gomokupoker.firebaseapp.com",
-  databaseURL: "https://gomokupoker-default-rtdb.firebaseio.com",
-  projectId: "gomokupoker",
-  storageBucket: "gomokupoker.firebasestorage.app",
-  messagingSenderId: "1095334995748",
-  appId: "1:1095334995748:web:f8d68584b8afe73d0c75b1",
+  apiKey: "AIzaSyBuuD5S_i0CVKyJzMHe2Xo7AD--22mRcpY",
+  authDomain: "gomokupoker-6d52e.firebaseapp.com",
+  projectId: "gomokupoker-6d52e",
+  storageBucket: "gomokupoker-6d52e.firebasestorage.app",
+  messagingSenderId: "328481241770",
+  appId: "1:328481241770:web:776fb5df349803a375aed3"
 };
 
 // App Check 用 reCAPTCHA v3 サイトキー (Firebase Console → App Check で発行)
-window.appCheckSiteKey = "YOUR_RECAPTCHA_V3_SITE_KEY";
+window.appCheckSiteKey = "6Le2reYsAAAAAB4bC4ClC69m5oc83dGRZeJ-hYlt";
