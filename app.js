@@ -69,20 +69,46 @@ async function initFirebase() {
   const configured = values.length > 0 && values.every((value) => value && !String(value).includes("YOUR_"));
   if (!configured || window.location.protocol === "file:") return null;
 
-  const [{ initializeApp }, firestore] = await Promise.all([
-    import("https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js"),
-    import("https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js"),
+  const SDK = "https://www.gstatic.com/firebasejs/10.12.5";
+  const [
+    { initializeApp },
+    appCheckMod,
+    authMod,
+    firestoreMod,
+  ] = await Promise.all([
+    import(`${SDK}/firebase-app.js`),
+    import(`${SDK}/firebase-app-check.js`),
+    import(`${SDK}/firebase-auth.js`),
+    import(`${SDK}/firebase-firestore.js`),
   ]);
 
   const app = initializeApp(config);
+
+  const siteKey = window.appCheckSiteKey;
+  if (siteKey && !String(siteKey).includes("YOUR_")) {
+    appCheckMod.initializeAppCheck(app, {
+      provider: new appCheckMod.ReCaptchaV3Provider(siteKey),
+      isTokenAutoRefreshEnabled: true,
+    });
+  }
+
+  const auth = authMod.getAuth(app);
+  await authMod.signInAnonymously(auth);
+  await new Promise((resolve) => {
+    const unsub = authMod.onAuthStateChanged(auth, (user) => {
+      if (user) { unsub(); resolve(); }
+    });
+  });
+
   return {
-    db: firestore.getFirestore(app),
-    doc: firestore.doc,
-    getDoc: firestore.getDoc,
-    onSnapshot: firestore.onSnapshot,
-    serverTimestamp: firestore.serverTimestamp,
-    setDoc: firestore.setDoc,
-    updateDoc: firestore.updateDoc,
+    uid: auth.currentUser.uid,
+    db: firestoreMod.getFirestore(app),
+    doc: firestoreMod.doc,
+    getDoc: firestoreMod.getDoc,
+    setDoc: firestoreMod.setDoc,
+    updateDoc: firestoreMod.updateDoc,
+    onSnapshot: firestoreMod.onSnapshot,
+    serverTimestamp: firestoreMod.serverTimestamp,
   };
 }
 
@@ -98,8 +124,8 @@ function createGame(overrides = {}) {
     resetRequest: null,
     board: Array.from({ length: BOARD_SIZE * BOARD_SIZE }, () => null),
     players: {
-      black: { deck: createDeck("black") },
-      red: { deck: createDeck("red") },
+      black: { uid: null, deck: createDeck("black") },
+      red: { uid: null, deck: createDeck("red") },
     },
     log: [],
     ...overrides,
@@ -288,7 +314,6 @@ async function placeCard(index) {
   } else {
     logMessage(`${colorName(card.owner)}が ${card.rank} を置きました。宣言するか相手にターンを渡してください。`);
   }
-
   await syncState();
   render();
 }
@@ -447,16 +472,23 @@ async function createOnlineRoom() {
   state = createGame();
   state.mode = "online";
   state.roomCode = makeRoomCode();
+  state.players.black.uid = firebaseApi.uid;
   localPlayer = "black";
   selectedCardId = null;
   roomRef = firebaseApi.doc(firebaseApi.db, "rooms", state.roomCode);
-  await firebaseApi.setDoc(roomRef, {
-    state,
-    createdAt: firebaseApi.serverTimestamp(),
-    updatedAt: firebaseApi.serverTimestamp(),
-  });
-  subscribeRoom();
-  els.roomInfo.textContent = `部屋コード: ${state.roomCode} / あなたは黒です。`;
+  try {
+    await firebaseApi.setDoc(roomRef, {
+      state: serializableState(),
+      ownerUid: firebaseApi.uid,
+      createdAt: firebaseApi.serverTimestamp(),
+      updatedAt: firebaseApi.serverTimestamp(),
+    });
+    subscribeRoom();
+    els.roomInfo.textContent = `部屋コード: ${state.roomCode} / あなたは黒です。コードを相手に共有してください。`;
+  } catch (e) {
+    els.roomInfo.textContent = errorMessage(e);
+    roomRef = null;
+  }
   render();
 }
 
@@ -467,26 +499,47 @@ async function joinOnlineRoom() {
 
   leaveRoom();
   roomRef = firebaseApi.doc(firebaseApi.db, "rooms", code);
-  const snap = await firebaseApi.getDoc(roomRef);
-  if (!snap.exists()) {
-    els.roomInfo.textContent = "部屋が見つかりません。";
-    roomRef = null;
-    return;
-  }
+  try {
+    const snap = await firebaseApi.getDoc(roomRef);
+    if (!snap.exists()) {
+      els.roomInfo.textContent = "部屋が見つかりません。";
+      roomRef = null;
+      return;
+    }
+    state = snap.data().state;
+    state.mode = "online";
+    state.roomCode = code;
 
-  localPlayer = "red";
-  selectedCardId = null;
-  state = snap.data().state;
-  subscribeRoom();
-  els.roomInfo.textContent = `部屋コード: ${code} / あなたは赤です。`;
-  render();
+    if (state.players.black.uid === firebaseApi.uid) {
+      localPlayer = "black";
+    } else if (state.players.red.uid === firebaseApi.uid) {
+      localPlayer = "red";
+    } else if (!state.players.red.uid) {
+      localPlayer = "red";
+      state.players.red.uid = firebaseApi.uid;
+      logMessage("赤が参加しました。");
+      await syncState();
+    } else {
+      els.roomInfo.textContent = "この部屋は満員です。";
+      roomRef = null;
+      return;
+    }
+    selectedCardId = null;
+    subscribeRoom();
+    els.roomInfo.textContent = `部屋コード: ${code} / あなたは${colorName(localPlayer)}です。`;
+    render();
+  } catch (e) {
+    els.roomInfo.textContent = errorMessage(e);
+    roomRef = null;
+  }
 }
 
 function subscribeRoom() {
   if (!roomRef || !firebaseApi) return;
   unsubscribeRoom = firebaseApi.onSnapshot(roomRef, (snap) => {
     if (!snap.exists()) return;
-    state = snap.data().state;
+    const incoming = snap.data().state;
+    state = { ...incoming, mode: "online", roomCode: state.roomCode };
     selectedCardId = null;
     render();
   });
@@ -494,10 +547,23 @@ function subscribeRoom() {
 
 async function syncState() {
   if (!roomRef || !firebaseApi || state.mode !== "online") return;
-  await firebaseApi.updateDoc(roomRef, {
-    state,
-    updatedAt: firebaseApi.serverTimestamp(),
-  });
+  try {
+    await firebaseApi.updateDoc(roomRef, {
+      state: serializableState(),
+      updatedAt: firebaseApi.serverTimestamp(),
+    });
+  } catch (e) {
+    els.roomInfo.textContent = errorMessage(e);
+  }
+}
+
+function serializableState() {
+  const { mode, roomCode, ...rest } = state;
+  return rest;
+}
+
+function errorMessage(e) {
+  return e && e.message ? `エラー: ${e.message}` : "エラーが発生しました";
 }
 
 function renderResetControls() {
@@ -534,8 +600,12 @@ async function requestReset() {
 
 async function acceptReset() {
   if (state.mode !== "online" || !state.resetRequest) return;
+  const blackUid = state.players.black.uid;
+  const redUid = state.players.red.uid;
   const code = state.roomCode;
   state = createGame({ mode: "online", roomCode: code });
+  state.players.black.uid = blackUid;
+  state.players.red.uid = redUid;
   selectedCardId = null;
   logMessage("双方の同意で盤面をリセットしました。");
   await syncState();
@@ -554,7 +624,15 @@ function logMessage(message) {
 }
 
 function makeRoomCode() {
-  return Math.random().toString(36).slice(2, 8).toUpperCase();
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let out = "";
+  const arr = new Uint32Array(6);
+  (window.crypto || {}).getRandomValues?.(arr);
+  for (let i = 0; i < 6; i += 1) {
+    const r = arr[i] || Math.floor(Math.random() * 1e9);
+    out += chars[r % chars.length];
+  }
+  return out;
 }
 
 function colorName(color) {

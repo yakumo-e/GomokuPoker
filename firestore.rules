@@ -3,8 +3,32 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     match /rooms/{roomId} {
-      allow read, create, update: if true;
+      allow list: if false;
       allow delete: if false;
+
+      // 認証済みなら誰でも読める (部屋コードを知っている前提)
+      allow get: if request.auth != null;
+
+      // 作成: 自分が黒として登録される必要がある
+      allow create: if request.auth != null
+        && request.resource.data.keys().hasOnly(['state', 'ownerUid', 'createdAt', 'updatedAt'])
+        && request.resource.data.ownerUid == request.auth.uid
+        && request.resource.data.state.players.black.uid == request.auth.uid
+        && request.resource.data.state.players.red.uid == null
+        && request.resource.data.state.size() < 50000;
+
+      // 更新: 既存の黒/赤 か、新規参加 (空席の赤を自分で埋める) のみ
+      allow update: if request.auth != null
+        && request.resource.data.state.players.black.uid == resource.data.state.players.black.uid
+        && (
+          request.auth.uid == resource.data.state.players.black.uid
+          || request.auth.uid == resource.data.state.players.red.uid
+          || (
+            resource.data.state.players.red.uid == null
+            && request.resource.data.state.players.red.uid == request.auth.uid
+          )
+        )
+        && request.resource.data.state.size() < 50000;
     }
   }
 }
