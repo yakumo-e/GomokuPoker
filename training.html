@@ -32,7 +32,8 @@
         <label>各ペアの試合数 <input id="trMatches" type="number" value="2" min="1" max="10"></label>
         <label>最大配置手数 <input id="trMaxMoves" type="number" value="30" min="6" max="100" title="ロールアウト深さ制限"></label>
         <label>近傍距離 <input id="trDist" type="number" value="2" min="1" max="5" title="石からの距離マンハッタン"></label>
-        <label>変異強度 σ <input id="trSigma" type="number" value="0.25" min="0.01" max="2" step="0.05"></label>
+        <label>変異強度 σ (開始) <input id="trSigma" type="number" value="0.25" min="0.01" max="2" step="0.05"></label>
+        <label>σ 終了値 (空=固定) <input id="trSigmaEnd" type="number" placeholder="例 0.05" min="0.001" max="2" step="0.01" title="最終世代でこの値まで線形減少 (アニーリング)"></label>
         <label>エリート保存数 <input id="trElite" type="number" value="2" min="0" max="8"></label>
         <label><input id="trFromRandom" type="checkbox" checked> ランダム初期化 (offで現在値開始)</label>
       </div>
@@ -54,9 +55,31 @@
       <div class="pixel-card" id="trBestJson">—</div>
       <h2 style="margin-top: 16px; font-size: 16px;">世代別 最良勝率</h2>
       <div class="pixel-card" id="trHistory"></div>
+
+      <h2 style="margin-top: 24px;">ベンチマーク (vs 別重みセット)</h2>
+      <p class="muted" style="font-size: 12px;">A 側と B 側の重みを直接対戦させ、A の勝率を測ります。B 未指定なら DEFAULT_WEIGHTS を使用。色番を半々で入れ替えるので先手有利の影響を除けます。</p>
+      <div class="tr-row" style="align-items: center; gap: 10px;">
+        <label style="display: inline-grid; gap: 4px; font-size: 12px; color: var(--muted);">A (挑戦者)
+          <input id="bmFileA" type="file" accept=".json,application/json" style="font-size: 11px;">
+        </label>
+        <label style="display: inline-grid; gap: 4px; font-size: 12px; color: var(--muted);">B (相手、空でDEFAULT)
+          <input id="bmFileB" type="file" accept=".json,application/json" style="font-size: 11px;">
+        </label>
+        <label style="display: inline-grid; gap: 4px; font-size: 12px; color: var(--muted);">試合数
+          <input id="bmGames" type="number" value="50" min="2" max="2000" style="width: 80px;">
+        </label>
+        <label style="display: inline-grid; gap: 4px; font-size: 12px; color: var(--muted);">最大手数
+          <input id="bmMaxMoves" type="number" value="40" min="6" max="100" style="width: 80px;">
+        </label>
+        <button id="bmRun" type="button" style="background: var(--green);">実行</button>
+        <button id="bmStop" type="button" disabled style="background: var(--red); color: #fff;">停止</button>
+        <button id="bmUseCurrentBest" type="button" style="background: #8eb6f0;">A=現在の最良</button>
+      </div>
+      <div id="bmStatus" class="muted" style="font-size: 12px; min-height: 16px;"></div>
+      <div class="pixel-card" id="bmResult" style="font-family: 'Courier New', monospace; white-space: pre-wrap; min-height: 80px;">未実行</div>
     </main>
     <script type="module">
-      import { train } from "./bot/training.js";
+      import { train, benchmark } from "./bot/training.js";
       const $ = (id) => document.getElementById(id);
       let bestWeights = null;
       let stopFlag = false;
@@ -96,6 +119,7 @@
           eliteKeep: Number($("trElite").value),
           fromRandom: $("trFromRandom").checked,
           seedWeights,
+          sigmaEnd: $("trSigmaEnd").value === "" ? null : Number($("trSigmaEnd").value),
         };
 
         const t0 = performance.now();
@@ -107,7 +131,8 @@
           },
           onGeneration: async (info) => {
             const elapsed = ((performance.now() - t0) / 1000).toFixed(1);
-            $("trStatus").textContent = `第${info.gen + 1}/${opts.generations}世代 完了 (${elapsed}s経過)\n最良勝率 ${fmtPct(info.bestWin)}`;
+            const sigmaInfo = info.sigmaGen != null ? ` / σ=${info.sigmaGen.toFixed(3)}` : "";
+            $("trStatus").textContent = `第${info.gen + 1}/${opts.generations}世代 完了 (${elapsed}s経過${sigmaInfo})\n最良勝率 ${fmtPct(info.bestWin)}`;
             renderBest(info.best, info.gen + 1, info.bestWin);
             appendHistory(info.gen + 1, info.bestWin);
             await new Promise((r) => setTimeout(r, 0));
@@ -155,6 +180,80 @@
         $("trSeedFile").value = "";
         $("trSeedStatus").textContent = "未指定";
         $("trSeedStatus").style.color = "";
+      });
+
+      // ---- Benchmark ----
+      let bmWeightsA = null;
+      let bmWeightsB = null;
+      let bmStopFlag = false;
+      async function readJsonFile(file) {
+        const text = await file.text();
+        return JSON.parse(text);
+      }
+      $("bmFileA").addEventListener("change", async (e) => {
+        const f = e.target.files?.[0];
+        if (!f) return;
+        try { bmWeightsA = await readJsonFile(f); $("bmStatus").textContent = `A 読込: ${f.name}`; }
+        catch (err) { $("bmStatus").textContent = "A エラー: " + err.message; bmWeightsA = null; }
+      });
+      $("bmFileB").addEventListener("change", async (e) => {
+        const f = e.target.files?.[0];
+        if (!f) return;
+        try { bmWeightsB = await readJsonFile(f); $("bmStatus").textContent = `B 読込: ${f.name}`; }
+        catch (err) { $("bmStatus").textContent = "B エラー: " + err.message; bmWeightsB = null; }
+      });
+      $("bmUseCurrentBest").addEventListener("click", () => {
+        if (!bestWeights) { $("bmStatus").textContent = "現在の最良重みが無い (まず学習してください)"; return; }
+        bmWeightsA = { ...bestWeights };
+        $("bmStatus").textContent = "A = 現在の最良 (学習結果)";
+      });
+      $("bmStop").addEventListener("click", () => { bmStopFlag = true; $("bmStop").disabled = true; });
+
+      $("bmRun").addEventListener("click", async () => {
+        if (!bmWeightsA) { $("bmStatus").textContent = "A を指定してください"; return; }
+        $("bmRun").disabled = true;
+        $("bmStop").disabled = false;
+        bmStopFlag = false;
+        $("bmResult").textContent = "実行中…";
+        const opts = {
+          weightsA: bmWeightsA,
+          weightsB: bmWeightsB || undefined,
+          games: Number($("bmGames").value),
+          maxMoves: Number($("bmMaxMoves").value),
+          distMax: Number($("trDist").value),
+        };
+        const t0 = performance.now();
+        try {
+          const res = await benchmark(opts, {
+            shouldStop: () => bmStopFlag,
+            onProgress: async (p) => {
+              $("bmStatus").textContent = `${p.progress}/${p.total} 完了 / A勝 ${p.aWins} B勝 ${p.bWins} 引分 ${p.draws}`;
+              await new Promise(r => setTimeout(r, 0));
+            },
+          });
+          const elapsed = ((performance.now() - t0) / 1000).toFixed(1);
+          const fmt = (x) => (x * 100).toFixed(1) + "%";
+          $("bmResult").textContent = [
+            `総試合数: ${res.total}  (${elapsed}s)`,
+            `A 勝率: ${fmt(res.aWinRate)}  (${res.aWins}勝)`,
+            `B 勝率: ${fmt(res.bWinRate)}  (${res.bWins}勝)`,
+            `引分: ${fmt(res.drawRate)}  (${res.draws})`,
+            "",
+            `A が黒で: ${res.aAsBlack.win}勝 / ${res.aAsBlack.lose}負 / ${res.aAsBlack.draw}分`,
+            `A が赤で: ${res.aAsRed.win}勝 / ${res.aAsRed.lose}負 / ${res.aAsRed.draw}分`,
+            "",
+            res.aWinRate > 0.55 ? "→ A は B より明らかに強い" :
+            res.aWinRate > 0.50 ? "→ A はわずかに強い (誤差レベルかも)" :
+            res.aWinRate > 0.45 ? "→ ほぼ互角" :
+            "→ A は B より弱い",
+          ].join("\n");
+          $("bmStatus").textContent = `完了`;
+        } catch (e) {
+          $("bmResult").textContent = "エラー: " + e.message;
+          console.error(e);
+        }
+        $("bmRun").disabled = false;
+        $("bmStop").disabled = true;
       });
       $("trDownload").addEventListener("click", () => {
         if (!bestWeights) return;
