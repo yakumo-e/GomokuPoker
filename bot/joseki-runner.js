@@ -1,5 +1,6 @@
-import { createGame, applyAction, isTerminal, finalize, BOARD_SIZE } from "./game-core.js";
+import { createGame, applyAction, isTerminal, finalize, legalActions, BOARD_SIZE } from "./game-core.js";
 import { mctsSearch } from "./mcts.js";
+import { pickRank } from "./greedy.js";
 
 const el = (id) => document.querySelector(id);
 
@@ -39,6 +40,12 @@ function bumpSequence(seq, winner) {
   aggregate.sequences.set(key, cur);
 }
 
+function forcedPlace(state, color, index) {
+  const card = pickRank(state, color, index);
+  if (!card) return null;
+  return { type: "place", color, index, cardId: card.id };
+}
+
 async function playMctsGame(opts) {
   const state = createGame();
   const placeSequence = []; // 配置のみ記録 (declare/passは含めない)
@@ -47,8 +54,23 @@ async function playMctsGame(opts) {
 
   while (!isTerminal(state) && safety-- > 0) {
     if (stopRequested) return null;
-    const temperature = placeCount < opts.tempPlies ? 1.0 : 0;
-    const { action } = mctsSearch(state, { iterations: opts.iterations, topK: opts.topK, perspective: state.turn, temperature });
+    let action = null;
+
+    // 強制配置フェーズ: 配置のターンかつ未使用の固定手があれば、その idx に置く
+    if (placeCount < opts.fixedMoves.length && !state.placedThisTurn && !state.challenge) {
+      const targetIdx = opts.fixedMoves[placeCount];
+      if (state.board[targetIdx]) {
+        // 既に埋まっている (不正な固定手) → スキップして MCTS にフォールバック
+      } else {
+        action = forcedPlace(state, state.turn, targetIdx);
+      }
+    }
+
+    if (!action) {
+      const temperature = placeCount < opts.tempPlies ? 1.0 : 0;
+      const result = mctsSearch(state, { iterations: opts.iterations, topK: opts.topK, perspective: state.turn, temperature });
+      action = result.action;
+    }
     if (!action) break;
     applyAction(state, action);
     if (action.type === "place") {
@@ -142,13 +164,21 @@ async function start() {
   el("#joStartButton").disabled = true;
   el("#joStopButton").disabled = false;
 
+  const fixedRaw = (el("#joFixedMoves").value || "").trim();
+  const fixedMoves = fixedRaw
+    ? fixedRaw.split(/[,\s]+/).map((s) => Number(s.trim())).filter((n) => Number.isInteger(n) && n >= 0 && n < BOARD_SIZE * BOARD_SIZE)
+    : [];
   const opts = {
     games: Math.max(1, Math.min(500, Number(el("#joGames").value) || 30)),
     iterations: Math.max(20, Math.min(2000, Number(el("#joIterations").value) || 200)),
     topK: Math.max(3, Math.min(20, Number(el("#joTopK").value) || 8)),
     maxPly: Math.max(2, Math.min(20, Number(el("#joMaxPly").value) || 10)),
     tempPlies: Math.max(0, Math.min(20, Number(el("#joTempPlies").value) || 8)),
+    fixedMoves,
   };
+  if (fixedMoves.length) {
+    el("#joStatus").textContent = `固定手順: ${fixedMoves.join(" → ")} (${fixedMoves.length}手)`;
+  }
   const t0 = performance.now();
   for (let g = 0; g < opts.games; g += 1) {
     if (stopRequested) break;

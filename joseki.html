@@ -39,6 +39,9 @@
         <label>位置候補数 (topK) <input id="joTopK" type="number" value="8" min="3" max="20"></label>
         <label>記録する最大ply <input id="joMaxPly" type="number" value="10" min="2" max="20"></label>
         <label>サンプリングするply数 <input id="joTempPlies" type="number" value="8" min="0" max="20" title="先頭からこのply数までは訪問数比例で確率的に選ぶ。多様性を確保。"></label>
+        <label>固定手順 (idx カンマ区切り)
+          <input id="joFixedMoves" type="text" placeholder="例: 61 または 48,72" title="序盤に強制配置するマス idx を指定。配置後の宣言/passはMCTS任せ。">
+        </label>
         <label>seed (空=ランダム) <input id="joSeed" type="number" placeholder="empty"></label>
       </div>
       <div class="jo-buttons">
