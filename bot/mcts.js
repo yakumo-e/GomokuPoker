@@ -1,5 +1,5 @@
 import { legalActions, applyAction, isTerminal, finalize, otherColor } from "./game-core.js";
-import { candidateCells, pickRank, greedyPlaceAction } from "./greedy.js";
+import { candidateCells, pickRank, pickRanks, greedyPlaceAction } from "./greedy.js";
 
 const C_UCB = 1.4;
 
@@ -23,7 +23,7 @@ function cloneState(state) {
   };
 }
 
-function generateChildActions(state, topK) {
+function generateChildActions(state, topK, rankK = 2) {
   const all = legalActions(state, state.turn);
   if (!all.length) return [];
   const declares = all.filter((a) => a.type === "declare");
@@ -35,9 +35,10 @@ function generateChildActions(state, topK) {
     const cells = candidateCells(state, topK);
     const out = [];
     for (const idx of cells) {
-      const card = pickRank(state, state.turn, idx);
-      if (!card) continue;
-      out.push({ type: "place", color: state.turn, index: idx, cardId: card.id });
+      const cards = pickRanks(state, state.turn, idx, rankK);
+      for (const card of cards) {
+        out.push({ type: "place", color: state.turn, index: idx, cardId: card.id });
+      }
     }
     return out;
   }
@@ -98,11 +99,11 @@ function ucbScore(child, parentVisits) {
   return exploit + explore;
 }
 
-function ensureUntried(node, topK) {
-  if (node.untried === null) node.untried = generateChildActions(node.state, topK);
+function ensureUntried(node, topK, rankK) {
+  if (node.untried === null) node.untried = generateChildActions(node.state, topK, rankK);
 }
 
-export function mctsSearch(rootState, { iterations = 200, topK = 8, perspective = null, temperature = 0 } = {}) {
+export function mctsSearch(rootState, { iterations = 200, topK = 8, rankK = 2, perspective = null, temperature = 0 } = {}) {
   const perspectiveColor = perspective || rootState.turn;
   const root = new Node(cloneState(rootState), null, null);
 
@@ -111,7 +112,7 @@ export function mctsSearch(rootState, { iterations = 200, topK = 8, perspective 
     let node = root;
     while (true) {
       if (isTerminal(node.state)) break;
-      ensureUntried(node, topK);
+      ensureUntried(node, topK, rankK);
       if (node.untried.length > 0) break;
       if (node.children.length === 0) break;
       let best = null, bestScore = -Infinity;
@@ -124,7 +125,7 @@ export function mctsSearch(rootState, { iterations = 200, topK = 8, perspective 
 
     // Expansion (untried からランダムに1つ取る)
     if (!isTerminal(node.state)) {
-      ensureUntried(node, topK);
+      ensureUntried(node, topK, rankK);
       if (node.untried.length > 0) {
         const pickIndex = Math.floor(Math.random() * node.untried.length);
         const a = node.untried.splice(pickIndex, 1)[0];

@@ -20,10 +20,11 @@ function ensurePly(p) {
   return aggregate.plyMaps[p];
 }
 
-function bumpPly(ply, index, winner) {
+function bumpPly(ply, index, rank, winner) {
   const m = ensurePly(ply);
-  const cur = m.get(index) || { count: 0, blackWin: 0, redWin: 0, draw: 0 };
+  const cur = m.get(index) || { count: 0, blackWin: 0, redWin: 0, draw: 0, ranks: {} };
   cur.count += 1;
+  if (rank) cur.ranks[rank] = (cur.ranks[rank] || 0) + 1;
   if (winner === "black") cur.blackWin += 1;
   else if (winner === "red") cur.redWin += 1;
   else cur.draw += 1;
@@ -74,7 +75,8 @@ async function playMctsGame(opts) {
     if (!action) break;
     applyAction(state, action);
     if (action.type === "place") {
-      placeSequence.push({ color: action.color, index: action.index });
+      const rank = state.board[action.index]?.rank;
+      placeSequence.push({ color: action.color, index: action.index, rank });
       placeCount += 1;
     }
     await new Promise((r) => setTimeout(r, 0));
@@ -121,7 +123,9 @@ function renderHeatmaps() {
         cell.style.background = colorForCount(v.count, max);
         cell.textContent = v.count;
         const winRate = ply % 2 === 0 ? v.blackWin / v.count : v.redWin / v.count;
-        cell.title = `(${Math.floor(i / BOARD_SIZE) + 1}, ${i % BOARD_SIZE + 1}) ${v.count}回, この手側勝率 ${(winRate * 100).toFixed(1)}%`;
+        const rankEntries = Object.entries(v.ranks || {}).sort((a, b) => b[1] - a[1]);
+        const top = rankEntries.slice(0, 3).map(([r, c]) => `${r}:${c}`).join(", ");
+        cell.title = `(${Math.floor(i / BOARD_SIZE) + 1}, ${i % BOARD_SIZE + 1}) ${v.count}回, この手側勝率 ${(winRate * 100).toFixed(1)}%${top ? ` | rank ${top}` : ""}`;
       } else {
         cell.classList.add("dim");
       }
@@ -191,7 +195,7 @@ async function start() {
     else if (w === "red") aggregate.redWin += 1;
     else aggregate.draw += 1;
     const seq = res.placeSequence.slice(0, opts.maxPly);
-    seq.forEach((mv, i) => bumpPly(i, mv.index, w));
+    seq.forEach((mv, i) => bumpPly(i, mv.index, mv.rank, w));
     for (let len = 2; len <= Math.min(seq.length, opts.maxPly); len += 1) {
       bumpSequence(seq.slice(0, len), w);
     }
