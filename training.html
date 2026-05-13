@@ -36,6 +36,14 @@
         <label>エリート保存数 <input id="trElite" type="number" value="2" min="0" max="8"></label>
         <label><input id="trFromRandom" type="checkbox" checked> ランダム初期化 (offで現在値開始)</label>
       </div>
+      <div class="tr-row" style="align-items: center;">
+        <label style="display: inline-grid; gap: 4px; font-size: 12px; color: var(--muted);">
+          シード重み (任意): 既存JSONから継続学習
+          <input id="trSeedFile" type="file" accept=".json,application/json" style="font-size: 11px;">
+        </label>
+        <span id="trSeedStatus" class="muted" style="font-size: 12px;">未指定</span>
+        <button id="trSeedClear" type="button" style="background: #888; padding: 4px 10px;">クリア</button>
+      </div>
       <div class="tr-row">
         <button id="trStart" type="button">開始</button>
         <button id="trStop" type="button" disabled>停止</button>
@@ -52,6 +60,7 @@
       const $ = (id) => document.getElementById(id);
       let bestWeights = null;
       let stopFlag = false;
+      let seedWeights = null;
 
       function fmtPct(x) { return (x * 100).toFixed(1) + "%"; }
 
@@ -86,6 +95,7 @@
           sigma: Number($("trSigma").value),
           eliteKeep: Number($("trElite").value),
           fromRandom: $("trFromRandom").checked,
+          seedWeights,
         };
 
         const t0 = performance.now();
@@ -122,6 +132,30 @@
 
       $("trStart").addEventListener("click", start);
       $("trStop").addEventListener("click", stop);
+
+      $("trSeedFile").addEventListener("change", async (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        try {
+          const text = await file.text();
+          const parsed = JSON.parse(text);
+          if (typeof parsed !== "object" || !parsed) throw new Error("不正なJSON");
+          seedWeights = parsed;
+          $("trSeedStatus").textContent = `読み込み済: ${file.name} (${Object.keys(parsed).length}キー)`;
+          $("trSeedStatus").style.color = "var(--green)";
+        } catch (err) {
+          $("trSeedStatus").textContent = "エラー: " + err.message;
+          $("trSeedStatus").style.color = "var(--red)";
+          seedWeights = null;
+        }
+      });
+
+      $("trSeedClear").addEventListener("click", () => {
+        seedWeights = null;
+        $("trSeedFile").value = "";
+        $("trSeedStatus").textContent = "未指定";
+        $("trSeedStatus").style.color = "";
+      });
       $("trDownload").addEventListener("click", () => {
         if (!bestWeights) return;
         const blob = new Blob([JSON.stringify(bestWeights, null, 2)], { type: "application/json" });
