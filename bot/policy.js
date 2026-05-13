@@ -1,28 +1,28 @@
 // パラメータ化された greedy ポリシー (学習対象)
-import { BOARD_SIZE, otherColor, legalActions, applyAction } from "./game-core.js";
+import { BOARD_SIZE, otherColor, legalActions, bestLineFor } from "./game-core.js";
 
 const DIRS = [[1, 0], [0, 1], [1, 1], [1, -1]];
 
 export const WEIGHT_KEYS = [
   "own4", "own3clean", "own3", "own2clean", "own2", "own1clean",
   "maxSame2", "maxSame3", "maxSame4", "twoPair", "straight",
-  "oppMul", "rankPairBonus", "rankAvoidOpp",
+  "oppMul", "declareMinHand",
 ];
 
 export const DEFAULT_WEIGHTS = {
   own4: 1000, own3clean: 40, own3: 15, own2clean: 8, own2: 2, own1clean: 1,
   maxSame2: 6, maxSame3: 30, maxSame4: 60, twoPair: 12, straight: 4,
-  oppMul: 0.9, rankPairBonus: 5, rankAvoidOpp: 3,
+  oppMul: 0.9, declareMinHand: 200, // 200 = ワンペア
 };
 
 export function randomWeights() {
   const w = {};
   for (const k of WEIGHT_KEYS) {
-    // 平均0、振れ幅大きめ。負値も許可
     w[k] = (Math.random() - 0.3) * 100;
   }
-  // 上手く動かないと評価が常に同じになるので oppMul だけ正に寄せる
   if (w.oppMul < 0) w.oppMul = Math.abs(w.oppMul);
+  // declareMinHand は 0〜800 の範囲で意味があるので調整
+  w.declareMinHand = Math.random() * 600;
   return w;
 }
 
@@ -95,6 +95,30 @@ export function evalBoardW(state, color, w) {
   return score;
 }
 
+// (x,y) を通る全 5-窓 (最大 4方向 × 5オフセット = 20窓) だけのスコア合計
+function evalCellWindows(state, color, x, y, w) {
+  let score = 0;
+  const board = state.board;
+  for (const [dx, dy] of DIRS) {
+    for (let off = -4; off <= 0; off += 1) {
+      let own = 0, oth = 0, invalid = false;
+      const ownRanks = [];
+      for (let s = 0; s < 5; s += 1) {
+        const nx = x + dx * (off + s), ny = y + dy * (off + s);
+        if (nx < 0 || ny < 0 || nx >= BOARD_SIZE || ny >= BOARD_SIZE) { invalid = true; break; }
+        const c = board[ny * BOARD_SIZE + nx];
+        if (c) {
+          if (c.owner === color) { own += 1; ownRanks.push(c.rank); }
+          else oth += 1;
+        }
+      }
+      if (invalid) continue;
+      score += windowScore(own, oth, ownRanks, w);
+    }
+  }
+  return score;
+}
+
 function candidateCellsNear(state, distMax = 2) {
   const empties = [];
   const hasStone = state.board.some((c) => c);
@@ -121,38 +145,17 @@ function candidateCellsNear(state, distMax = 2) {
 function pickRankW(state, color, index, w) {
   const cards = state.players[color].deck.filter((c) => !c.used);
   if (!cards.length) return null;
-  const x = index % BOARD_SIZE, y = Math.floor(index / BOARD_SIZE);
-  const windows = [];
-  for (const [dx, dy] of DIRS) {
-    for (let off = -4; off <= 0; off += 1) {
-      const cells = [];
-      let invalid = false;
-      for (let s = 0; s < 5; s += 1) {
-        const nx = x + dx * (off + s), ny = y + dy * (off + s);
-        if (nx < 0 || ny < 0 || nx >= BOARD_SIZE || ny >= BOARD_SIZE) { invalid = true; break; }
-        cells.push({ isCandidate: nx === x && ny === y, cell: state.board[ny * BOARD_SIZE + nx] });
-      }
-      if (!invalid) windows.push(cells);
-    }
-  }
   const uniqueRanks = [...new Set(cards.map((c) => c.rank))];
+  const opp = otherColor(color);
+  const x = index % BOARD_SIZE, y = Math.floor(index / BOARD_SIZE);
   let bestRank = uniqueRanks[0], bestScore = -Infinity;
   for (const rank of uniqueRanks) {
-    let score = 0;
-    for (const win of windows) {
-      let own = 0, oth = 0, oppHasRank = false, sameRank = 0;
-      for (const c of win) {
-        if (c.isCandidate) { own += 1; sameRank += 1; }
-        else if (c.cell) {
-          if (c.cell.owner === color) { own += 1; if (c.cell.rank === rank) sameRank += 1; }
-          else { oth += 1; if (c.cell.rank === rank) oppHasRank = true; }
-        }
-      }
-      if (oth >= 2) continue;
-      score += sameRank * sameRank * w.rankPairBonus;
-      if (oppHasRank) score -= w.rankAvoidOpp;
-    }
-    if (score > bestScore) { bestScore = score; bestRank = rank; }
+    state.board[index] = { owner: color, rank };
+    const my = evalCellWindows(state, color, x, y, w);
+    const them = evalCellWindows(state, opp, x, y, w);
+    state.board[index] = null;
+    const s = my - w.oppMul * them;
+    if (s > bestScore) { bestScore = s; bestRank = rank; }
   }
   return cards.find((c) => c.rank === bestRank) || cards[0];
 }
@@ -173,18 +176,27 @@ export function makeAgent(weights, opts = {}) {
       const me = state.turn, opp = otherColor(me);
       let bestIdx = cells[0], bestScore = -Infinity;
       for (const idx of cells) {
+        const x = idx % BOARD_SIZE, y = Math.floor(idx / BOARD_SIZE);
+        const myBefore = evalCellWindows(state, me, x, y, weights);
+        const oppBefore = evalCellWindows(state, opp, x, y, weights);
         state.board[idx] = { owner: me, rank: "X" };
-        const my = evalBoardW(state, me, weights);
-        const them = evalBoardW(state, opp, weights);
+        const myAfter = evalCellWindows(state, me, x, y, weights);
+        const oppAfter = evalCellWindows(state, opp, x, y, weights);
         state.board[idx] = null;
-        const s = my - weights.oppMul * them;
+        const s = (myAfter - myBefore) - weights.oppMul * (oppAfter - oppBefore);
         if (s > bestScore) { bestScore = s; bestIdx = idx; }
       }
       const card = pickRankW(state, state.turn, bestIdx, weights);
       if (!card) return null;
       return { type: "place", color: state.turn, index: bestIdx, cardId: card.id };
     }
-    // 配置後: 宣言可能なら宣言 (greedy)、そうでなければ pass
+    // 配置後: 宣言できる役のスコアが declareMinHand 以上なら宣言、未満なら pass
+    if (declares.length && passes.length) {
+      const declared = bestLineFor(state, state.turn);
+      const score = declared ? declared.score : 0;
+      const threshold = weights.declareMinHand ?? 0;
+      return score >= threshold ? declares[0] : passes[0];
+    }
     if (declares.length) return declares[0];
     if (passes.length) return passes[0];
     return null;

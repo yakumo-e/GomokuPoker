@@ -48,12 +48,24 @@ export async function train(opts, hooks = {}) {
     distMax = 2,
     fromRandom = true,
     eliteKeep = 2,
+    seedWeights = null,
   } = opts;
 
   let pop = [];
-  for (let i = 0; i < popSize; i += 1) {
-    if (fromRandom) pop.push(randomWeights());
-    else pop.push(i === 0 ? { ...DEFAULT_WEIGHTS } : mutate(DEFAULT_WEIGHTS, sigma));
+  if (seedWeights) {
+    // 欠けているキーは DEFAULT で補完、余計なキーは無視
+    const filled = {};
+    for (const k of WEIGHT_KEYS) {
+      filled[k] = Number.isFinite(seedWeights[k]) ? seedWeights[k] : DEFAULT_WEIGHTS[k];
+    }
+    for (let i = 0; i < popSize; i += 1) {
+      pop.push(i === 0 ? { ...filled } : mutate(filled, sigma));
+    }
+  } else {
+    for (let i = 0; i < popSize; i += 1) {
+      if (fromRandom) pop.push(randomWeights());
+      else pop.push(i === 0 ? { ...DEFAULT_WEIGHTS } : mutate(DEFAULT_WEIGHTS, sigma));
+    }
   }
 
   const history = [];
