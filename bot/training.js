@@ -45,6 +45,7 @@ export async function train(opts, hooks = {}) {
     matchesPerPair = 2,
     maxMoves = 30,
     sigma = 0.25,
+    sigmaEnd = null, // null なら sigma 固定。値があれば線形アニーリング
     distMax = 2,
     fromRandom = true,
     eliteKeep = 2,
@@ -73,6 +74,10 @@ export async function train(opts, hooks = {}) {
 
   for (let gen = 0; gen < generations; gen += 1) {
     if (shouldStop()) break;
+    // 現世代の σ (アニーリング)
+    const sigmaGen = sigmaEnd === null || generations <= 1
+      ? sigma
+      : sigma + (sigmaEnd - sigma) * (gen / (generations - 1));
     const fitness = pop.map(() => 0);
     const games = pop.map(() => 0);
 
@@ -105,7 +110,7 @@ export async function train(opts, hooks = {}) {
     history.push({ gen, bestWin, ranked: ranked.slice(0, 5), best: { ...best } });
 
     if (hooks.onGeneration) {
-      await hooks.onGeneration({ gen, ranked, best, bestWin, history });
+      await hooks.onGeneration({ gen, ranked, best, bestWin, history, sigmaGen });
     }
 
     if (gen === generations - 1 || shouldStop()) break;
@@ -118,10 +123,75 @@ export async function train(opts, hooks = {}) {
       const half = ranked.slice(0, Math.max(2, Math.floor(popSize / 2)));
       const a = pop[half[Math.floor(Math.random() * half.length)].idx];
       const b = pop[half[Math.floor(Math.random() * half.length)].idx];
-      next.push(mutate(crossover(a, b), sigma));
+      next.push(mutate(crossover(a, b), sigmaGen));
     }
     pop = next;
   }
 
   return history;
+}
+
+// ---- Benchmark ----
+function normalizeWeights(w) {
+  const out = {};
+  for (const k of WEIGHT_KEYS) {
+    out[k] = Number.isFinite(w?.[k]) ? w[k] : DEFAULT_WEIGHTS[k];
+  }
+  return out;
+}
+
+export async function benchmark(opts, hooks = {}) {
+  const {
+    weightsA,
+    weightsB = DEFAULT_WEIGHTS,
+    games = 50,
+    maxMoves = 40,
+    distMax = 2,
+  } = opts;
+  const A = normalizeWeights(weightsA);
+  const B = normalizeWeights(weightsB);
+  const shouldStop = () => Boolean(hooks.shouldStop && hooks.shouldStop());
+
+  let aAsBlackWin = 0, aAsBlackLose = 0, aAsBlackDraw = 0;
+  let aAsRedWin = 0, aAsRedLose = 0, aAsRedDraw = 0;
+  const halfGames = Math.ceil(games / 2);
+
+  for (let i = 0; i < games; i += 1) {
+    if (shouldStop()) break;
+    const aIsBlack = i < halfGames;
+    const blackW = aIsBlack ? A : B;
+    const redW = aIsBlack ? B : A;
+    const winner = playMatchSync(blackW, redW, maxMoves, distMax);
+    const w = winner?.color;
+    if (aIsBlack) {
+      if (w === "black") aAsBlackWin += 1;
+      else if (w === "red") aAsBlackLose += 1;
+      else aAsBlackDraw += 1;
+    } else {
+      if (w === "red") aAsRedWin += 1;
+      else if (w === "black") aAsRedLose += 1;
+      else aAsRedDraw += 1;
+    }
+    if (hooks.onProgress && (i % 5 === 4 || i === games - 1)) {
+      await hooks.onProgress({
+        progress: i + 1, total: games,
+        aWins: aAsBlackWin + aAsRedWin,
+        bWins: aAsBlackLose + aAsRedLose,
+        draws: aAsBlackDraw + aAsRedDraw,
+      });
+    }
+  }
+
+  const aWins = aAsBlackWin + aAsRedWin;
+  const bWins = aAsBlackLose + aAsRedLose;
+  const draws = aAsBlackDraw + aAsRedDraw;
+  const total = aWins + bWins + draws;
+  return {
+    total, aWins, bWins, draws,
+    aWinRate: total ? aWins / total : 0,
+    bWinRate: total ? bWins / total : 0,
+    drawRate: total ? draws / total : 0,
+    aAsBlack: { win: aAsBlackWin, lose: aAsBlackLose, draw: aAsBlackDraw },
+    aAsRed: { win: aAsRedWin, lose: aAsRedLose, draw: aAsRedDraw },
+  };
 }
