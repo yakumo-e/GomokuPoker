@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Gomoku Poker - 進化学習</title>
+    <link rel="stylesheet" href="./styles.css">
+    <style>
+      .tr-shell { max-width: 1100px; margin: 0 auto; padding: 16px; }
+      .tr-controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; margin-bottom: 12px; }
+      .tr-controls label { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
+      .tr-controls input { background: #111218; color: var(--ink); }
+      .tr-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+      .tr-row button { padding: 8px 14px; }
+      #trStart { background: var(--green); }
+      #trStop { background: var(--red); color: #fff; }
+      #trDownload { background: #8eb6f0; }
+      #trStatus { white-space: pre-wrap; font-family: "Courier New", monospace; padding: 10px; min-height: 80px; }
+      #trBestJson { white-space: pre-wrap; font-family: "Courier New", monospace; font-size: 11px; padding: 10px; max-height: 250px; overflow: auto; }
+      #trHistory { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 6px; padding: 10px; }
+      .tr-gen { background: var(--panel-2); padding: 6px 8px; font-size: 11px; border: 2px solid var(--shadow); }
+      .tr-gen strong { display: block; color: var(--gold); }
+    </style>
+  </head>
+  <body>
+    <main class="tr-shell">
+      <h1>進化学習 (CPU育成)</h1>
+      <p class="muted">ランダム重みのエージェント群を自己対戦トーナメントで世代交代させ、強い評価関数を発見します。</p>
+      <div class="tr-controls">
+        <label>個体数 <input id="trPop" type="number" value="8" min="2" max="32"></label>
+        <label>世代数 <input id="trGen" type="number" value="20" min="1" max="500"></label>
+        <label>各ペアの試合数 <input id="trMatches" type="number" value="2" min="1" max="10"></label>
+        <label>最大配置手数 <input id="trMaxMoves" type="number" value="30" min="6" max="100" title="ロールアウト深さ制限"></label>
+        <label>近傍距離 <input id="trDist" type="number" value="2" min="1" max="5" title="石からの距離マンハッタン"></label>
+        <label>変異強度 σ <input id="trSigma" type="number" value="0.25" min="0.01" max="2" step="0.05"></label>
+        <label>エリート保存数 <input id="trElite" type="number" value="2" min="0" max="8"></label>
+        <label><input id="trFromRandom" type="checkbox" checked> ランダム初期化 (offで現在値開始)</label>
+      </div>
+      <div class="tr-row">
+        <button id="trStart" type="button">開始</button>
+        <button id="trStop" type="button" disabled>停止</button>
+        <button id="trDownload" type="button" disabled>最良重みをDL</button>
+      </div>
+      <div class="pixel-card" id="trStatus">準備完了</div>
+      <h2 style="margin-top: 16px; font-size: 16px;">最良エージェント (現世代)</h2>
+      <div class="pixel-card" id="trBestJson">—</div>
+      <h2 style="margin-top: 16px; font-size: 16px;">世代別 最良勝率</h2>
+      <div class="pixel-card" id="trHistory"></div>
+    </main>
+    <script type="module">
+      import { train } from "./bot/training.js";
+      const $ = (id) => document.getElementById(id);
+      let bestWeights = null;
+      let stopFlag = false;
+
+      function fmtPct(x) { return (x * 100).toFixed(1) + "%"; }
+
+      function renderBest(w, generation, win) {
+        bestWeights = w;
+        $("trBestJson").textContent = `// 第${generation}世代 / 勝率 ${fmtPct(win)}\n` + JSON.stringify(w, null, 2);
+        $("trDownload").disabled = false;
+      }
+
+      function appendHistory(gen, win) {
+        const el = document.createElement("div");
+        el.className = "tr-gen";
+        el.innerHTML = `<strong>G${gen}</strong>${fmtPct(win)}`;
+        $("trHistory").appendChild(el);
+      }
+
+      async function start() {
+        $("trStart").disabled = true;
+        $("trStop").disabled = false;
+        $("trDownload").disabled = true;
+        stopFlag = false;
+        bestWeights = null;
+        $("trHistory").innerHTML = "";
+        $("trBestJson").textContent = "実行中…";
+
+        const opts = {
+          popSize: Number($("trPop").value),
+          generations: Number($("trGen").value),
+          matchesPerPair: Number($("trMatches").value),
+          maxMoves: Number($("trMaxMoves").value),
+          distMax: Number($("trDist").value),
+          sigma: Number($("trSigma").value),
+          eliteKeep: Number($("trElite").value),
+          fromRandom: $("trFromRandom").checked,
+        };
+
+        const t0 = performance.now();
+        const hooks = {
+          shouldStop: () => stopFlag,
+          onProgress: async (info) => {
+            $("trStatus").textContent = `第${info.gen + 1}/${opts.generations}世代 - 個体 ${info.agentIdx + 1}/${info.popSize} 評価中…`;
+            await new Promise((r) => setTimeout(r, 0));
+          },
+          onGeneration: async (info) => {
+            const elapsed = ((performance.now() - t0) / 1000).toFixed(1);
+            $("trStatus").textContent = `第${info.gen + 1}/${opts.generations}世代 完了 (${elapsed}s経過)\n最良勝率 ${fmtPct(info.bestWin)}`;
+            renderBest(info.best, info.gen + 1, info.bestWin);
+            appendHistory(info.gen + 1, info.bestWin);
+            await new Promise((r) => setTimeout(r, 0));
+          },
+        };
+        try {
+          await train(opts, hooks);
+          const elapsed = ((performance.now() - t0) / 1000).toFixed(1);
+          $("trStatus").textContent += `\n終了 (${elapsed}s)`;
+        } catch (e) {
+          $("trStatus").textContent = "エラー: " + e.message;
+          console.error(e);
+        }
+        $("trStart").disabled = false;
+        $("trStop").disabled = true;
+      }
+
+      function stop() {
+        stopFlag = true;
+        $("trStop").disabled = true;
+      }
+
+      $("trStart").addEventListener("click", start);
+      $("trStop").addEventListener("click", stop);
+      $("trDownload").addEventListener("click", () => {
+        if (!bestWeights) return;
+        const blob = new Blob([JSON.stringify(bestWeights, null, 2)], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `weights-${Date.now()}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+      });
+    </script>
+  </body>
+</html>
