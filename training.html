@@ -20,6 +20,11 @@
       #trHistory { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 6px; padding: 10px; }
       .tr-gen { background: var(--panel-2); padding: 6px 8px; font-size: 11px; border: 2px solid var(--shadow); }
       .tr-gen strong { display: block; color: var(--gold); }
+      .tr-mini-board { display: grid; grid-template-columns: repeat(11, 1fr); gap: 0; margin-top: 4px; aspect-ratio: 1; border: 1px solid var(--shadow); }
+      .tr-mini-cell { font-size: 6px; line-height: 1; display: grid; place-items: center; background: #c9a55c; color: #111; font-weight: 700; min-width: 0; min-height: 0; outline: 0.5px solid rgba(60,40,20,0.3); }
+      .tr-mini-cell.black { background: #0d0d12; color: #f8f3df; }
+      .tr-mini-cell.red { background: #de4a4a; color: #fff; }
+      .tr-winner { display: block; color: var(--green); font-size: 10px; margin-top: 4px; }
     </style>
   </head>
   <body>
@@ -97,10 +102,33 @@
         $("trDownload").disabled = false;
       }
 
-      function appendHistory(gen, win) {
+      function appendHistory(gen, win, demoBoard) {
         const el = document.createElement("div");
         el.className = "tr-gen";
-        el.innerHTML = `<strong>G${gen}</strong>${fmtPct(win)}`;
+        const head = document.createElement("strong");
+        head.textContent = `G${gen} - ${fmtPct(win)}`;
+        el.appendChild(head);
+        if (demoBoard && demoBoard.board) {
+          const grid = document.createElement("div");
+          grid.className = "tr-mini-board";
+          for (const cell of demoBoard.board) {
+            const c = document.createElement("div");
+            c.className = "tr-mini-cell";
+            if (cell) {
+              c.classList.add(cell.owner);
+              c.textContent = cell.rank;
+            }
+            grid.appendChild(c);
+          }
+          el.appendChild(grid);
+          const w = demoBoard.winner;
+          const lbl = document.createElement("span");
+          lbl.className = "tr-winner";
+          if (!w) lbl.textContent = "—";
+          else if (w.color === "draw") lbl.textContent = "引分";
+          else lbl.textContent = (w.color === "black" ? "黒" : "赤") + "勝";
+          el.appendChild(lbl);
+        }
         $("trHistory").appendChild(el);
       }
 
@@ -138,7 +166,7 @@
             const sigmaInfo = info.sigmaGen != null ? ` / σ=${info.sigmaGen.toFixed(3)}` : "";
             $("trStatus").textContent = `第${info.gen + 1}/${opts.generations}世代 完了 (${elapsed}s経過${sigmaInfo})\n最良勝率 ${fmtPct(info.bestWin)}`;
             renderBest(info.best, info.gen + 1, info.bestWin);
-            appendHistory(info.gen + 1, info.bestWin);
+            appendHistory(info.gen + 1, info.bestWin, info.demoBoard);
             await new Promise((r) => setTimeout(r, 0));
           },
         };
