@@ -53,6 +53,17 @@
               <button id="resetButton" type="button">盤面リセット</button>
               <button id="acceptResetButton" type="button" hidden>リセットに同意</button>
             </div>
+            <label class="field-label" for="opponentSelect">対戦相手 (ローカル時)</label>
+            <select id="opponentSelect">
+              <option value="human">人 vs 人</option>
+              <option value="cpu-easy">vs CPU(弱)</option>
+              <option value="cpu-normal" selected>vs CPU(普通)</option>
+              <option value="cpu-strong">vs CPU(強)</option>
+              <option value="cpu-trained">vs CPU(学習版)</option>
+            </select>
+            <label class="field-label" for="trainedWeightsFile">学習済み重み (cpu-trained 用)</label>
+            <input id="trainedWeightsFile" type="file" accept=".json,application/json">
+            <p id="trainedWeightsStatus" class="muted" style="font-size: 11px; margin-top: 4px;">未指定</p>
             <label class="field-label" for="roomCodeInput">部屋コード</label>
             <div class="join-row">
               <input id="roomCodeInput" autocomplete="off" spellcheck="false" placeholder="例: AB12CD">
