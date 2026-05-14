@@ -25,6 +25,7 @@
               <option value="local">vs 対人</option>
               <option value="cpu" selected>vs CPU</option>
               <option value="room">ルーム</option>
+              <option value="test">テストモード</option>
             </select>
             <button id="startButton" type="button" class="start-button">開始</button>
           </div>
@@ -37,6 +38,9 @@
               <input id="roomCodeInput" autocomplete="off" spellcheck="false" placeholder="例: AB12CD">
               <button id="joinRoomButton" type="button">参加</button>
             </div>
+            <label id="roomTestModeWrap" hidden style="display: block; margin-top: 10px; font-size: 12px; color: var(--gold);">
+              <input type="checkbox" id="roomTestMode"> テストモード部屋として作成 (起動者同士のみ)
+            </label>
             <p id="roomInfo" class="muted">部屋を作るか、コードを入れて参加。</p>
           </div>
           <div id="testPanel" class="sub-panel" hidden>
@@ -48,7 +52,7 @@
               <p class="muted">実験ルール</p>
               <label><input type="checkbox" id="ruleNoCenterFirst"> 黒の初手は中央3×3を禁止</label>
               <label><input type="checkbox" id="ruleStrictClaim"> 宣言条件: 自分5枚かつ相手0枚のみ</label>
-              <label><input type="checkbox" id="ruleResponseDouble" disabled> 応戦時に赤が2枚連続配置 (未実装)</label>
+              <label><input type="checkbox" id="ruleResponseDouble" checked> 応戦時に赤が2枚連続配置 (テストモード自動)</label>
             </div>
           </div>
           <div class="mode-buttons">
@@ -90,6 +94,17 @@
         </aside>
       </section>
     </main>
+
+    <div id="passwordModal" class="modal" hidden>
+      <div class="modal-card">
+        <button class="modal-close" id="passwordModalClose" type="button">×</button>
+        <h2>テストモード起動</h2>
+        <p class="muted" style="margin: 10px 0;">キーを入力してください</p>
+        <input id="passwordInput" type="password" placeholder="key" autocomplete="off" style="margin-bottom: 8px;">
+        <button id="passwordSubmit" type="button" style="background: var(--green);">起動</button>
+        <p id="passwordError" class="muted" hidden style="color: var(--red); margin-top: 8px;">キーが違います</p>
+      </div>
+    </div>
 
     <script src="./firebase-config.js"></script>
     <script src="./app.js"></script>

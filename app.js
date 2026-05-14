@@ -31,7 +31,18 @@ const els = {
   testWeightsStatus: document.querySelector("#testWeightsStatus"),
   ruleNoCenterFirst: document.querySelector("#ruleNoCenterFirst"),
   ruleStrictClaim: document.querySelector("#ruleStrictClaim"),
+  ruleResponseDouble: document.querySelector("#ruleResponseDouble"),
+  passwordModal: document.querySelector("#passwordModal"),
+  passwordInput: document.querySelector("#passwordInput"),
+  passwordSubmit: document.querySelector("#passwordSubmit"),
+  passwordModalClose: document.querySelector("#passwordModalClose"),
+  passwordError: document.querySelector("#passwordError"),
+  roomTestModeWrap: document.querySelector("#roomTestModeWrap"),
+  roomTestMode: document.querySelector("#roomTestMode"),
 };
+
+const TEST_PASSWORD = "GOMOKU";
+const TEST_UNLOCK_KEY = "gp-test-unlocked-v1";
 
 let cpuColor = null;          // "red" if CPU is active, else null
 let cpuThinking = false;
@@ -61,28 +72,133 @@ let prevWinner = null;
 init();
 
 async function init() {
+  loadTestModeUnlock();
+  setupRoomModal();
   render();
   wireEvents();
+  if (testModeUnlocked) relocateTestPanel();
   firebaseApi = await initFirebase();
   els.connectionStatus.textContent = firebaseApi ? "オンライン準備OK" : "オフライン";
   els.createRoomButton.disabled = !firebaseApi;
   els.joinRoomButton.disabled = !firebaseApi;
 }
 
-function syncModePanel() {
-  const mode = els.modeSelect.value;
-  els.roomPanel.hidden = mode !== "room";
-  els.testPanel.hidden = mode !== "test";
+function loadTestModeUnlock() {
+  try {
+    if (localStorage.getItem(TEST_UNLOCK_KEY) === "1") testModeUnlocked = true;
+  } catch (e) { /* ignore */ }
 }
 
-function unlockTestMode() {
-  if (testModeUnlocked) return;
-  testModeUnlocked = true;
-  const opt = document.createElement("option");
-  opt.value = "test";
-  opt.textContent = "テストモード";
-  els.modeSelect.appendChild(opt);
-  logMessage("テストモードが選択肢に追加されました。");
+function persistTestModeUnlock() {
+  try { localStorage.setItem(TEST_UNLOCK_KEY, "1"); } catch (e) { /* ignore */ }
+}
+
+// roomPanel を中央モーダル化 (ルーム選択時に開く)
+function setupRoomModal() {
+  if (!els.roomPanel) return;
+  const overlay = document.createElement("div");
+  overlay.id = "roomModal";
+  overlay.className = "modal";
+  overlay.hidden = true;
+  const card = document.createElement("div");
+  card.className = "modal-card";
+  const close = document.createElement("button");
+  close.type = "button";
+  close.className = "modal-close";
+  close.id = "roomModalClose";
+  close.textContent = "×";
+  card.appendChild(close);
+  const h = document.createElement("h2");
+  h.textContent = "オンライン対戦";
+  card.appendChild(h);
+  // 既存パネルの中身をモーダル card に移動
+  els.roomPanel.parentElement.removeChild(els.roomPanel);
+  els.roomPanel.removeAttribute("hidden");
+  els.roomPanel.style.display = "block";
+  card.appendChild(els.roomPanel);
+  overlay.appendChild(card);
+  document.body.appendChild(overlay);
+  els.roomModal = overlay;
+  close.addEventListener("click", () => { overlay.hidden = true; });
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay) overlay.hidden = true;
+  });
+}
+
+function relocateTestPanel() {
+  if (!els.testPanel) return;
+  const sidePanel = document.querySelector(".side-panel");
+  const scoreCard = document.querySelector(".score-card");
+  if (!sidePanel || !scoreCard) return;
+  if (els.testPanel.parentElement === sidePanel) return;
+  // 移動 + 表示
+  els.testPanel.parentElement?.removeChild(els.testPanel);
+  els.testPanel.removeAttribute("hidden");
+  els.testPanel.style.borderColor = "var(--gold)";
+  scoreCard.insertAdjacentElement("afterend", els.testPanel);
+}
+
+function showPasswordModal() {
+  return new Promise((resolve) => {
+    if (!els.passwordModal) { resolve(false); return; }
+    els.passwordModal.hidden = false;
+    els.passwordInput.value = "";
+    els.passwordError.hidden = true;
+    setTimeout(() => els.passwordInput.focus(), 50);
+
+    const onSubmit = () => {
+      if ((els.passwordInput.value || "").trim().toUpperCase() === TEST_PASSWORD) {
+        els.passwordModal.hidden = true;
+        cleanup();
+        resolve(true);
+      } else {
+        els.passwordError.hidden = false;
+      }
+    };
+    const onClose = () => { els.passwordModal.hidden = true; cleanup(); resolve(false); };
+    const onKey = (e) => { if (e.key === "Enter") { e.preventDefault(); onSubmit(); } };
+    function cleanup() {
+      els.passwordSubmit.removeEventListener("click", onSubmit);
+      els.passwordModalClose.removeEventListener("click", onClose);
+      els.passwordInput.removeEventListener("keydown", onKey);
+    }
+    els.passwordSubmit.addEventListener("click", onSubmit);
+    els.passwordModalClose.addEventListener("click", onClose);
+    els.passwordInput.addEventListener("keydown", onKey);
+  });
+}
+
+async function ensureTestModeUnlocked() {
+  if (testModeUnlocked) return true;
+  const ok = await showPasswordModal();
+  if (ok) {
+    testModeUnlocked = true;
+    persistTestModeUnlock();
+    relocateTestPanel();
+    if (els.roomTestModeWrap) els.roomTestModeWrap.hidden = false;
+    logMessage("テストモードが起動されました。");
+    render();
+  }
+  return ok;
+}
+
+function syncModePanel() {
+  // roomPanel はモーダル化されたので開閉は startButton 経由のみ
+  // testPanel は unlock 済みなら side-panel に常駐表示。未 unlock なら隠す
+  const mode = els.modeSelect.value;
+  if (els.testPanel) {
+    const inSidePanel = els.testPanel.parentElement?.classList?.contains("side-panel");
+    if (testModeUnlocked && inSidePanel) {
+      // 常に表示
+      els.testPanel.hidden = false;
+    } else {
+      // unlock 前は隠す
+      els.testPanel.hidden = !(testModeUnlocked && mode === "test");
+    }
+  }
+  if (els.roomTestModeWrap) {
+    els.roomTestModeWrap.hidden = !testModeUnlocked;
+  }
 }
 
 function wireEvents() {
@@ -92,24 +208,29 @@ function wireEvents() {
   els.startButton.addEventListener("click", async () => {
     const mode = els.modeSelect.value;
     if (mode === "room") {
-      // ルームモード: 部屋を作る/参加するボタンが下に出る。開始ボタンは何もしない
-      els.roomPanel.hidden = false;
+      if (els.roomModal) els.roomModal.hidden = false;
       return;
+    }
+    if (mode === "test") {
+      const ok = await ensureTestModeUnlocked();
+      if (!ok) return;
     }
     leaveRoom();
     localPlayer = "black";
     selectedCardId = null;
     state = createGame();
+    if (mode === "test") state.testMode = true;
     resetEventTracking();
     if (mode === "cpu" || mode === "test") {
       cpuColor = "red";
       await ensureCpuLoaded();
       const tag = mode === "test" ? "テスト" : "学習版";
-      logMessage(`ローカル対戦開始: 黒=あなた / 赤=CPU(${tag})。`);
+      logMessage(`ローカル対戦開始: 黒=あなた / 赤=CPU(${tag})${mode === "test" ? " / 応戦時赤2枚配置" : ""}。`);
     } else {
       cpuColor = null;
       logMessage("ローカル対戦を開始しました。");
     }
+    syncModePanel();
     render();
     maybeRunCpuTurn();
   });
@@ -159,13 +280,6 @@ function wireEvents() {
   window.addEventListener("click", unlock);
   window.addEventListener("keydown", unlock);
 
-  // 隠しキー: Ctrl+Shift+T でテストモード開放
-  window.addEventListener("keydown", (e) => {
-    if (e.ctrlKey && e.shiftKey && (e.key === "T" || e.key === "t")) {
-      e.preventDefault();
-      unlockTestMode();
-    }
-  });
 }
 
 async function initFirebase() {
@@ -227,6 +341,7 @@ function createGame(overrides = {}) {
     lastPlacedBy: null,
     placedThisTurn: false,
     resetRequest: null,
+    testMode: false,
     board: Array.from({ length: BOARD_SIZE * BOARD_SIZE }, () => null),
     players: {
       black: { uid: null, deck: createDeck("black") },
@@ -235,6 +350,21 @@ function createGame(overrides = {}) {
     log: [],
     ...overrides,
   };
+}
+
+function forcedPlacedCount() {
+  if (!state.challenge) return 0;
+  const v = state.challenge.responsePlaced;
+  return typeof v === "number" ? v : (v ? 1 : 0);
+}
+
+function forcedPlaceTarget() {
+  if (!state.challenge) return 1;
+  return state.challenge.responseTarget ?? 1;
+}
+
+function responseTargetFor(state, responder) {
+  return (state.testMode && responder === "red") ? 2 : 1;
 }
 
 function createDeck(owner) {
@@ -489,16 +619,20 @@ function canAct() {
 
 function canPlace() {
   if (!canAct()) return false;
+  if (state.challenge) {
+    if (!isForcedDeclarationTurn(actionColor())) return false;
+    return forcedPlacedCount() < forcedPlaceTarget();
+  }
   if (state.placedThisTurn) return false;
-  if (!state.challenge) return true;
-  return isForcedDeclarationTurn(actionColor()) && !state.challenge.responsePlaced;
+  return true;
 }
 
 function canDeclare() {
   if (state.winner) return false;
   if (state.challenge) {
     const color = actionColor();
-    return canAct() && isForcedDeclarationTurn(color) && state.challenge.responsePlaced;
+    if (!isForcedDeclarationTurn(color)) return false;
+    return canAct() && forcedPlacedCount() >= forcedPlaceTarget();
   }
 
   const color = declarationColor();
@@ -552,8 +686,14 @@ async function placeCard(index) {
   selectedCardId = null;
 
   if (state.challenge) {
-    state.challenge.responsePlaced = true;
-    logMessage(`${colorName(color)}が応戦の ${card.rank} を置きました。`);
+    const before = forcedPlacedCount();
+    const target = forcedPlaceTarget();
+    state.challenge.responsePlaced = before + 1;
+    if (target > 1) {
+      logMessage(`${colorName(color)}が応戦 ${before + 1}/${target} で ${card.rank} を置きました。`);
+    } else {
+      logMessage(`${colorName(color)}が応戦の ${card.rank} を置きました。`);
+    }
   } else {
     logMessage(`${colorName(card.owner)}が ${card.rank} を置きました。`);
   }
@@ -579,15 +719,19 @@ async function declareHand() {
 
   const declared = bestLineFor(color) || noHandResult();
   if (!state.challenge) {
+    const responder = otherColor(color);
+    const target = responseTargetFor(state, responder);
     state.challenge = {
       startedBy: color,
-      responsePlaced: false,
+      responsePlaced: 0,
+      responseTarget: target,
       declarations: { [color]: declared },
     };
-    state.turn = otherColor(color);
+    state.turn = responder;
     state.placedThisTurn = false;
     selectedCardId = null;
-    logMessage(`${colorName(color)}が ${declared.name} を宣言しました。相手は1枚置いてから応戦宣言します。`);
+    const placeWord = target === 2 ? "2枚連続" : "1枚";
+    logMessage(`${colorName(color)}が ${declared.name} を宣言しました。${colorName(responder)}は${placeWord}置いてから応戦宣言します。`);
   } else {
     state.challenge.declarations[color] = declared;
     finishChallenge();
@@ -718,11 +862,17 @@ function highRankValue(rank) {
 
 async function createOnlineRoom() {
   if (!firebaseApi) return;
+  const wantTest = !!(els.roomTestMode && els.roomTestMode.checked);
+  if (wantTest && !testModeUnlocked) {
+    els.roomInfo.textContent = "テストモード未起動です。";
+    return;
+  }
   leaveRoom();
   state = createGame();
   state.mode = "online";
   state.roomCode = makeRoomCode();
   state.players.black.uid = firebaseApi.uid;
+  state.testMode = wantTest;
   localPlayer = "black";
   selectedCardId = null;
   resetEventTracking();
@@ -760,6 +910,13 @@ async function joinOnlineRoom() {
     state = snap.data().state;
     state.mode = "online";
     state.roomCode = code;
+
+    if (state.testMode && !testModeUnlocked) {
+      els.roomInfo.textContent = "この部屋はテストモード専用です。テストモード起動者のみ参加可。";
+      roomRef = null;
+      state = createGame();
+      return;
+    }
 
     if (state.players.black.uid === firebaseApi.uid) {
       localPlayer = "black";
@@ -918,8 +1075,14 @@ function applyCpuAction(action) {
     state.lastPlacedBy = action.color;
     state.placedThisTurn = true;
     if (state.challenge && isForcedDeclarationTurn(action.color)) {
-      state.challenge.responsePlaced = true;
-      logMessage(`赤(CPU)が応戦の ${card.rank} を置きました。`);
+      const before = forcedPlacedCount();
+      const target = forcedPlaceTarget();
+      state.challenge.responsePlaced = before + 1;
+      if (target > 1) {
+        logMessage(`赤(CPU)が応戦 ${before + 1}/${target} で ${card.rank} を置きました。`);
+      } else {
+        logMessage(`赤(CPU)が応戦の ${card.rank} を置きました。`);
+      }
     } else {
       logMessage(`赤(CPU)が ${card.rank} を置きました。`);
     }
