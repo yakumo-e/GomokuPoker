@@ -1,6 +1,19 @@
+import { DEFAULT_CPU_WEIGHTS } from "./cpu-weights.js";
+
 let worker = null;
 let nextId = 1;
 const pending = new Map();
+let currentWeights = null; // null = worker側のデフォルトを使用
+
+export function setCpuWeights(weights) {
+  currentWeights = weights;
+}
+export function getCpuWeights() {
+  return currentWeights || DEFAULT_CPU_WEIGHTS;
+}
+export function resetCpuWeights() {
+  currentWeights = null;
+}
 
 function ensureWorker() {
   if (worker) return worker;
@@ -21,11 +34,10 @@ function ensureWorker() {
   return worker;
 }
 
-export function cpuThink(state, opts) {
+export function cpuThink(state) {
   return new Promise((resolve, reject) => {
     const id = nextId++;
     pending.set(id, { resolve, reject });
-    // 深いコピーで状態を送る (構造化クローンは関数を含めないので safe)
     const snapshot = JSON.parse(JSON.stringify({
       turn: state.turn,
       winner: state.winner,
@@ -36,12 +48,6 @@ export function cpuThink(state, opts) {
       players: state.players,
       history: state.history || [],
     }));
-    ensureWorker().postMessage({ id, state: snapshot, opts });
+    ensureWorker().postMessage({ id, state: snapshot, weights: currentWeights });
   });
 }
-
-export const CPU_PRESETS = {
-  easy:   { iterations: 25,  topK: 4 },
-  normal: { iterations: 80,  topK: 6 },
-  strong: { iterations: 200, topK: 8 },
-};
