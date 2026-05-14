@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "check": "node --check app.js",
-    "dev": "node dev-server.js"
+    "dev": "node dev-server.js",
+    "sim": "node bot/runner.js"
   }
 }

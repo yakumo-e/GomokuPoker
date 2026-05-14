@@ -199,6 +199,14 @@ h2 {
   background: #d98a3a;
 }
 
+#opponentSelect {
+  background: #111218;
+  color: var(--ink);
+  border: 3px solid var(--shadow);
+  padding: 8px;
+  font: inherit;
+}
+
 #acceptResetButton {
   background: var(--green);
 }
