@@ -10,16 +10,18 @@ function cloneState(state) {
     challenge: state.challenge ? {
       startedBy: state.challenge.startedBy,
       responsePlaced: state.challenge.responsePlaced,
+      responseTarget: state.challenge.responseTarget,
       declarations: { ...state.challenge.declarations },
     } : null,
     placedThisTurn: state.placedThisTurn,
     moveCount: state.moveCount,
+    testMode: state.testMode || false,
     board: state.board.map((c) => c ? { ...c } : null),
     players: {
       black: { deck: state.players.black.deck.map((c) => ({ ...c })) },
       red: { deck: state.players.red.deck.map((c) => ({ ...c })) },
     },
-    history: [...state.history],
+    history: state.history ? [...state.history] : [],
   };
 }
 

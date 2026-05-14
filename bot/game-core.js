@@ -116,12 +116,20 @@ export function isForcedDeclarationTurn(state, color) {
   return Boolean(state.challenge && state.turn === color && state.challenge.startedBy !== color);
 }
 
+function placedCount(state) {
+  const v = state.challenge?.responsePlaced;
+  return typeof v === "number" ? v : (v ? 1 : 0);
+}
+function placeTarget(state) {
+  return state.challenge?.responseTarget ?? 1;
+}
+
 export function legalActions(state, color) {
   if (state.winner) return [];
   if (state.turn !== color) return [];
 
   if (state.challenge && isForcedDeclarationTurn(state, color)) {
-    if (!state.challenge.responsePlaced) return placeActions(state, color);
+    if (placedCount(state) < placeTarget(state)) return placeActions(state, color);
     return [{ type: "declare", color }];
   }
 
@@ -149,7 +157,9 @@ export function applyAction(state, action) {
 
   if (action.type === "place") {
     if (state.board[action.index]) throw new Error("cell occupied");
-    if (state.placedThisTurn && !(state.challenge && isForcedDeclarationTurn(state, action.color) && !state.challenge.responsePlaced)) {
+    const inForcedResponse = state.challenge && isForcedDeclarationTurn(state, action.color)
+      && placedCount(state) < placeTarget(state);
+    if (state.placedThisTurn && !inForcedResponse) {
       throw new Error("already placed");
     }
     const card = state.players[action.color].deck.find((c) => c.id === action.cardId);
@@ -160,7 +170,7 @@ export function applyAction(state, action) {
     state.moveCount += 1;
     state.history.push({ kind: "place", color: action.color, rank: card.rank, index: action.index });
     if (state.challenge && isForcedDeclarationTurn(state, action.color)) {
-      state.challenge.responsePlaced = true;
+      state.challenge.responsePlaced = placedCount(state) + 1;
     }
     return state;
   }
@@ -179,12 +189,15 @@ export function applyAction(state, action) {
     state.history.push({ kind: "declare", color: action.color, hand: declared.name });
 
     if (!state.challenge) {
+      const responder = otherColor(action.color);
+      const target = (state.testMode && responder === "red") ? 2 : 1;
       state.challenge = {
         startedBy: action.color,
-        responsePlaced: false,
+        responsePlaced: 0,
+        responseTarget: target,
         declarations: { [action.color]: declared },
       };
-      state.turn = otherColor(action.color);
+      state.turn = responder;
       state.placedThisTurn = false;
       return state;
     }
