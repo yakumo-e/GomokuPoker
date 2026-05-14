@@ -16,20 +16,32 @@ function crossover(a, b) {
   return out;
 }
 
-function playMatchSync(blackW, redW, maxMoves, distMax) {
+function playMatchSync(blackW, redW, maxMoves, distMax, keepHistory = false) {
   const state = createGame();
   const black = makeAgent(blackW, { distMax });
   const red = makeAgent(redW, { distMax });
   let placed = 0, safety = 200;
+  const history = keepHistory ? [] : null;
   while (!isTerminal(state) && safety-- > 0 && placed < maxMoves) {
     const agent = state.turn === "black" ? black : red;
     const action = agent(state);
     if (!action) break;
     applyAction(state, action);
+    if (history) {
+      if (action.type === "place") {
+        const cell = state.board[action.index];
+        history.push({ kind: "place", color: action.color, index: action.index, rank: cell?.rank });
+      } else if (action.type === "declare") {
+        const last = state.history[state.history.length - 1];
+        history.push({ kind: "declare", color: action.color, hand: last?.hand });
+      } else if (action.type === "pass") {
+        history.push({ kind: "pass", color: action.color });
+      }
+    }
     if (action.type === "place") placed += 1;
   }
   finalize(state);
-  return state.winner;
+  return { winner: state.winner, history };
 }
 
 function score(winner, asColor) {
@@ -87,9 +99,9 @@ export async function train(opts, hooks = {}) {
         if (shouldStop()) break;
         for (let m = 0; m < matchesPerPair; m += 1) {
           // 黒=i, 赤=j
-          const w = playMatchSync(pop[i], pop[j], maxMoves, distMax);
-          fitness[i] += score(w, "black");
-          fitness[j] += score(w, "red");
+          const { winner } = playMatchSync(pop[i], pop[j], maxMoves, distMax);
+          fitness[i] += score(winner, "black");
+          fitness[j] += score(winner, "red");
           games[i] += 1;
           games[j] += 1;
         }
@@ -147,6 +159,7 @@ export async function benchmark(opts, hooks = {}) {
     games = 50,
     maxMoves = 40,
     distMax = 2,
+    keepHistory = false,
   } = opts;
   const A = normalizeWeights(weightsA);
   const B = normalizeWeights(weightsB);
@@ -155,14 +168,22 @@ export async function benchmark(opts, hooks = {}) {
   let aAsBlackWin = 0, aAsBlackLose = 0, aAsBlackDraw = 0;
   let aAsRedWin = 0, aAsRedLose = 0, aAsRedDraw = 0;
   const halfGames = Math.ceil(games / 2);
+  const histories = [];
 
   for (let i = 0; i < games; i += 1) {
     if (shouldStop()) break;
     const aIsBlack = i < halfGames;
     const blackW = aIsBlack ? A : B;
     const redW = aIsBlack ? B : A;
-    const winner = playMatchSync(blackW, redW, maxMoves, distMax);
+    const { winner, history } = playMatchSync(blackW, redW, maxMoves, distMax, keepHistory);
     const w = winner?.color;
+    if (keepHistory) {
+      histories.push({
+        gameIndex: i, aIsBlack, winner: winner,
+        winnerLabel: w === "draw" ? "引分" : (w === (aIsBlack ? "black" : "red") ? "A" : "B"),
+        moves: history,
+      });
+    }
     if (aIsBlack) {
       if (w === "black") aAsBlackWin += 1;
       else if (w === "red") aAsBlackLose += 1;
@@ -193,5 +214,6 @@ export async function benchmark(opts, hooks = {}) {
     drawRate: total ? draws / total : 0,
     aAsBlack: { win: aAsBlackWin, lose: aAsBlackLose, draw: aAsBlackDraw },
     aAsRed: { win: aAsRedWin, lose: aAsRedLose, draw: aAsRedDraw },
+    histories: keepHistory ? histories : null,
   };
 }
