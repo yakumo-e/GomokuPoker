@@ -26,7 +26,22 @@ const els = {
   blackDeckCount: document.querySelector("#blackDeckCount"),
   redDeckCount: document.querySelector("#redDeckCount"),
   turnTimer: document.querySelector("#turnTimer"),
+  opponentSelect: document.querySelector("#opponentSelect"),
+  trainedWeightsFile: document.querySelector("#trainedWeightsFile"),
+  trainedWeightsStatus: document.querySelector("#trainedWeightsStatus"),
 };
+
+const CPU_PRESETS = {
+  easy:   { iterations: 25,  topK: 4 },
+  normal: { iterations: 80,  topK: 6 },
+  strong: { iterations: 200, topK: 8 },
+};
+let cpuColor = null;          // "red" if CPU is active, else null
+let cpuLevel = "normal";
+let cpuThinking = false;
+let cpuModule = null;         // lazy-loaded ./bot/cpu.js
+let policyModule = null;      // lazy-loaded ./bot/policy.js
+let trainedWeights = null;    // 学習済み重み (cpu-trained 用)
 
 let firebaseApi = null;
 let roomRef = null;
@@ -56,14 +71,35 @@ async function init() {
 }
 
 function wireEvents() {
-  els.newLocalButton.addEventListener("click", () => {
+  els.newLocalButton.addEventListener("click", async () => {
     leaveRoom();
     localPlayer = "black";
     selectedCardId = null;
     state = createGame();
     resetEventTracking();
-    logMessage("ローカル対戦を開始しました。");
+    const opp = els.opponentSelect ? els.opponentSelect.value : "human";
+    if (opp === "cpu-trained") {
+      if (!trainedWeights) {
+        logMessage("学習済み重みファイルが未指定です。「学習済み重み」欄から選択してください。");
+        cpuColor = null;
+        render();
+        return;
+      }
+      cpuColor = "red";
+      cpuLevel = "trained";
+      await ensurePolicyLoaded();
+      logMessage(`ローカル対戦開始: 黒=あなた / 赤=CPU(学習版)。`);
+    } else if (opp.startsWith("cpu-")) {
+      cpuColor = "red";
+      cpuLevel = opp.slice(4);
+      await ensureCpuLoaded();
+      logMessage(`ローカル対戦開始: 黒=あなた / 赤=CPU(${cpuLevel})。`);
+    } else {
+      cpuColor = null;
+      logMessage("ローカル対戦を開始しました。");
+    }
     render();
+    maybeRunCpuTurn();
   });
 
   els.createRoomButton.addEventListener("click", createOnlineRoom);
@@ -72,6 +108,25 @@ function wireEvents() {
   els.passButton.addEventListener("click", passTurn);
   els.resetButton.addEventListener("click", requestReset);
   els.acceptResetButton.addEventListener("click", acceptReset);
+
+  if (els.trainedWeightsFile) {
+    els.trainedWeightsFile.addEventListener("change", async (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      try {
+        const text = await file.text();
+        const parsed = JSON.parse(text);
+        if (typeof parsed !== "object" || !parsed) throw new Error("不正なJSON");
+        trainedWeights = parsed;
+        els.trainedWeightsStatus.textContent = `読み込み済: ${file.name}`;
+        els.trainedWeightsStatus.style.color = "var(--green)";
+      } catch (err) {
+        els.trainedWeightsStatus.textContent = "エラー: " + err.message;
+        els.trainedWeightsStatus.style.color = "var(--red)";
+        trainedWeights = null;
+      }
+    });
+  }
 
   // ブラウザの音声制限解除：最初のユーザー操作で AudioContext を起こす
   const unlock = () => {
@@ -269,6 +324,8 @@ function shouldAutoPass() {
   if (state.challenge) return false;
   if (!state.placedThisTurn) return false;
   if (state.mode === "online" && state.turn !== localPlayer) return false;
+  if (cpuColor && state.turn === cpuColor) return false;
+  if (cpuThinking) return false;
   return true;
 }
 
@@ -395,7 +452,12 @@ function resultText() {
 }
 
 function canAct() {
-  return !state.winner && (state.mode === "local" || state.turn === localPlayer);
+  if (state.winner) return false;
+  if (cpuThinking) return false;
+  if (state.mode === "online") return state.turn === localPlayer;
+  // local
+  if (cpuColor && state.turn === cpuColor) return false;
+  return true;
 }
 
 function canPlace() {
@@ -421,7 +483,9 @@ function canPass() {
 }
 
 function actionColor() {
-  return state.mode === "local" ? state.turn : localPlayer;
+  if (state.mode === "online") return localPlayer;
+  if (cpuColor) return otherColor(cpuColor); // 人間側の色 (黒)
+  return state.turn;
 }
 
 function declarationColor() {
@@ -467,6 +531,7 @@ async function passTurn() {
   selectedCardId = null;
   render();
   syncState();
+  maybeRunCpuTurn();
 }
 
 async function declareHand() {
@@ -492,6 +557,7 @@ async function declareHand() {
   clearTurnTimer();
   render();
   syncState();
+  maybeRunCpuTurn();
 }
 
 function finishChallenge() {
@@ -759,8 +825,96 @@ function leaveRoom() {
   if (unsubscribeRoom) unsubscribeRoom();
   unsubscribeRoom = null;
   roomRef = null;
+  cpuColor = null;
+  cpuThinking = false;
   clearTurnTimer();
   els.roomInfo.textContent = firebaseApi ? "オンライン対戦できます。" : "Firebase設定を入れるとオンライン対戦できます。";
+}
+
+async function ensureCpuLoaded() {
+  if (cpuModule) return cpuModule;
+  cpuModule = await import("./bot/cpu.js");
+  return cpuModule;
+}
+
+async function ensurePolicyLoaded() {
+  if (policyModule) return policyModule;
+  policyModule = await import("./bot/policy.js");
+  return policyModule;
+}
+
+function isCpuTurn() {
+  return Boolean(cpuColor && state.mode === "local" && !state.winner && state.turn === cpuColor);
+}
+
+async function maybeRunCpuTurn() {
+  if (!isCpuTurn() || cpuThinking) return;
+  await ensureCpuLoaded();
+  while (isCpuTurn()) {
+    cpuThinking = true;
+    els.turnLabel.textContent = `CPU(${colorName(cpuColor)})思考中…`;
+    render();
+    let action = null;
+    try {
+      if (cpuLevel === "trained" && policyModule && trainedWeights) {
+        const agent = policyModule.makeAgent(trainedWeights, { distMax: 3 });
+        action = agent(state);
+        // 学習版は同期で速いので、思考感を演出
+        await new Promise((r) => setTimeout(r, 300));
+      } else {
+        action = await cpuModule.cpuThink(state, CPU_PRESETS[cpuLevel] || CPU_PRESETS.normal);
+      }
+    } catch (e) {
+      console.error("CPU error", e);
+    } finally {
+      cpuThinking = false;
+    }
+    if (!action) { render(); return; }
+    applyCpuAction(action);
+    render();
+    // 行動間に少し間を空けてプレイ感を出す
+    await new Promise((r) => setTimeout(r, 250));
+  }
+}
+
+function applyCpuAction(action) {
+  if (action.type === "place") {
+    const card = state.players[action.color].deck.find((c) => c.id === action.cardId);
+    if (!card || card.used) return;
+    if (state.board[action.index]) return;
+    card.used = true;
+    state.board[action.index] = { owner: action.color, rank: card.rank };
+    state.lastPlacedBy = action.color;
+    state.placedThisTurn = true;
+    if (state.challenge && isForcedDeclarationTurn(action.color)) {
+      state.challenge.responsePlaced = true;
+      logMessage(`赤(CPU)が応戦の ${card.rank} を置きました。`);
+    } else {
+      logMessage(`赤(CPU)が ${card.rank} を置きました。`);
+    }
+    return;
+  }
+  if (action.type === "pass") {
+    state.turn = otherColor(action.color);
+    state.placedThisTurn = false;
+    return;
+  }
+  if (action.type === "declare") {
+    const declared = bestLineFor(action.color) || noHandResult();
+    if (!state.challenge) {
+      state.challenge = {
+        startedBy: action.color,
+        responsePlaced: false,
+        declarations: { [action.color]: declared },
+      };
+      state.turn = otherColor(action.color);
+      state.placedThisTurn = false;
+      logMessage(`赤(CPU)が ${declared.name} を宣言しました。`);
+    } else {
+      state.challenge.declarations[action.color] = declared;
+      finishChallenge();
+    }
+  }
 }
 
 function logMessage(message) {

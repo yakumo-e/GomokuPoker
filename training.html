@@ -74,9 +74,13 @@
         <button id="bmRun" type="button" style="background: var(--green);">実行</button>
         <button id="bmStop" type="button" disabled style="background: var(--red); color: #fff;">停止</button>
         <button id="bmUseCurrentBest" type="button" style="background: #8eb6f0;">A=現在の最良</button>
+        <label style="display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--muted);">
+          <input id="bmKeepHistory" type="checkbox"> 試合履歴を保存
+        </label>
       </div>
       <div id="bmStatus" class="muted" style="font-size: 12px; min-height: 16px;"></div>
       <div class="pixel-card" id="bmResult" style="font-family: 'Courier New', monospace; white-space: pre-wrap; min-height: 80px;">未実行</div>
+      <div id="bmHistory" style="margin-top: 8px;"></div>
     </main>
     <script type="module">
       import { train, benchmark } from "./bot/training.js";
@@ -202,6 +206,59 @@
         try { bmWeightsB = await readJsonFile(f); $("bmStatus").textContent = `B 読込: ${f.name}`; }
         catch (err) { $("bmStatus").textContent = "B エラー: " + err.message; bmWeightsB = null; }
       });
+      const BOARD_SIZE = 11;
+      function moveToText(m) {
+        if (m.kind === "place") {
+          const row = Math.floor(m.index / BOARD_SIZE) + 1;
+          const col = (m.index % BOARD_SIZE) + 1;
+          const c = m.color === "black" ? "黒" : "赤";
+          return `${c}${m.rank}@(${row},${col})`;
+        }
+        if (m.kind === "declare") {
+          const c = m.color === "black" ? "黒" : "赤";
+          return `${c}宣言(${m.hand || "?"})`;
+        }
+        if (m.kind === "pass") {
+          const c = m.color === "black" ? "黒" : "赤";
+          return `${c}pass`;
+        }
+        return "?";
+      }
+      function renderHistories(histories) {
+        const wrap = $("bmHistory");
+        wrap.innerHTML = "";
+        if (!histories || !histories.length) return;
+        const title = document.createElement("h3");
+        title.textContent = `試合履歴 (${histories.length}局)`;
+        title.style.fontSize = "13px";
+        title.style.margin = "8px 0";
+        wrap.appendChild(title);
+        for (const g of histories) {
+          const det = document.createElement("details");
+          det.style.background = "var(--panel-2)";
+          det.style.border = "2px solid var(--shadow)";
+          det.style.marginBottom = "4px";
+          det.style.padding = "4px 8px";
+          const sum = document.createElement("summary");
+          sum.style.cursor = "pointer";
+          sum.style.fontSize = "12px";
+          const colorLabel = g.aIsBlack ? "A=黒/B=赤" : "B=黒/A=赤";
+          const w = g.winner?.color || "?";
+          const winnerColor = w === "draw" ? "引分" : (w === "black" ? "黒勝" : "赤勝");
+          const reason = g.winner?.reason || "";
+          sum.textContent = `G${g.gameIndex + 1} [${colorLabel}] ${winnerColor} (${g.winnerLabel}) - ${g.moves.length}手 ${reason ? "/ " + reason : ""}`;
+          det.appendChild(sum);
+          const body = document.createElement("div");
+          body.style.fontSize = "11px";
+          body.style.fontFamily = "Courier New, monospace";
+          body.style.padding = "4px";
+          body.style.lineHeight = "1.5";
+          body.textContent = g.moves.map((m, i) => `${i + 1}. ${moveToText(m)}`).join("  →  ");
+          det.appendChild(body);
+          wrap.appendChild(det);
+        }
+      }
+
       $("bmUseCurrentBest").addEventListener("click", () => {
         if (!bestWeights) { $("bmStatus").textContent = "現在の最良重みが無い (まず学習してください)"; return; }
         bmWeightsA = { ...bestWeights };
@@ -215,12 +272,14 @@
         $("bmStop").disabled = false;
         bmStopFlag = false;
         $("bmResult").textContent = "実行中…";
+        const keepHistory = $("bmKeepHistory").checked;
         const opts = {
           weightsA: bmWeightsA,
           weightsB: bmWeightsB || undefined,
           games: Number($("bmGames").value),
           maxMoves: Number($("bmMaxMoves").value),
           distMax: Number($("trDist").value),
+          keepHistory,
         };
         const t0 = performance.now();
         try {
@@ -248,6 +307,7 @@
             "→ A は B より弱い",
           ].join("\n");
           $("bmStatus").textContent = `完了`;
+          renderHistories(res.histories);
         } catch (e) {
           $("bmResult").textContent = "エラー: " + e.message;
           console.error(e);
