@@ -7,12 +7,17 @@ export const WEIGHT_KEYS = [
   "own4", "own3clean", "own3", "own2clean", "own2", "own1clean",
   "maxSame2", "maxSame3", "maxSame4", "twoPair", "straight",
   "oppMul", "declareMinHand",
+  "threatBlock", "pairBuildBonus", "rankReserve", "oppRankAvoid",
 ];
 
 export const DEFAULT_WEIGHTS = {
   own4: 1000, own3clean: 40, own3: 15, own2clean: 8, own2: 2, own1clean: 1,
   maxSame2: 6, maxSame3: 30, maxSame4: 60, twoPair: 12, straight: 4,
   oppMul: 0.9, declareMinHand: 200, // 200 = ワンペア
+  threatBlock: 200,    // 相手の near-claim 阻止ボーナス
+  pairBuildBonus: 30,  // 同rank近接ボーナス (自前ペア形成)
+  rankReserve: 3,      // 残り枚数ボーナス (rank温存)
+  oppRankAvoid: 4,     // 同rankを相手が近くに置いてた場合の追加得点 (相手の役被り抑止)
 };
 
 export function randomWeights() {
@@ -21,8 +26,11 @@ export function randomWeights() {
     w[k] = (Math.random() - 0.3) * 100;
   }
   if (w.oppMul < 0) w.oppMul = Math.abs(w.oppMul);
-  // declareMinHand は 0〜800 の範囲で意味があるので調整
   w.declareMinHand = Math.random() * 600;
+  // threatBlock は防御力。負だと自殺的なので正に寄せる
+  if (w.threatBlock < 0) w.threatBlock = Math.abs(w.threatBlock);
+  if (w.pairBuildBonus < 0) w.pairBuildBonus = Math.abs(w.pairBuildBonus) * 0.3;
+  if (w.rankReserve < 0) w.rankReserve = 0;
   return w;
 }
 
@@ -142,19 +150,88 @@ function candidateCellsNear(state, distMax = 2) {
   return empties;
 }
 
+// (x,y) 周辺の自色/相手色のrank出現回数を集計
+function countNearbyRanks(state, color, x, y, distMax = 2) {
+  const counts = new Map();
+  for (let dy = -distMax; dy <= distMax; dy += 1) {
+    for (let dx = -distMax; dx <= distMax; dx += 1) {
+      const nx = x + dx, ny = y + dy;
+      if (nx < 0 || ny < 0 || nx >= BOARD_SIZE || ny >= BOARD_SIZE) continue;
+      const c = state.board[ny * BOARD_SIZE + nx];
+      if (c && c.owner === color) counts.set(c.rank, (counts.get(c.rank) || 0) + 1);
+    }
+  }
+  return counts;
+}
+
+// 相手の near-claim 脅威: (x,y) を通る 5-窓のうち、相手 own>=3 かつ 阻止可能なもの
+function threatBlockScore(state, opp, x, y, w) {
+  let bonus = 0;
+  const board = state.board;
+  for (const [dx, dy] of DIRS) {
+    for (let off = -4; off <= 0; off += 1) {
+      let own = 0, oth = 0, invalid = false, candidateInWindow = false;
+      for (let s = 0; s < 5; s += 1) {
+        const nx = x + dx * (off + s), ny = y + dy * (off + s);
+        if (nx < 0 || ny < 0 || nx >= BOARD_SIZE || ny >= BOARD_SIZE) { invalid = true; break; }
+        if (nx === x && ny === y) candidateInWindow = true;
+        const c = board[ny * BOARD_SIZE + nx];
+        if (c) {
+          if (c.owner === opp) own += 1;
+          else oth += 1;
+        }
+      }
+      if (invalid || !candidateInWindow) continue;
+      // 候補マスは空 (これから置く)。相手 own と 既存oth を見て、置いた結果 oth+1 で阻止できるか判定
+      // 置いた後: opp_own=own, opp_oth=oth+1
+      // 阻止判定: oth+1 >= 2 で相手の主張不能 (own4-claim の場合は手遅れ)
+      if (own >= 3) {
+        // 相手 own=4: もう手遅れ (相手 own=4, oth<=1 で claim 可能)
+        if (own === 4) {
+          // 唯一の阻止は oth=2 になること。oth==1 なら手遅れ、oth==0 ならここで oth=1 になり相手 claim 可
+          if (oth >= 1) bonus += w.threatBlock * 2; // 既に阻止済みエリアを更にカバー
+          // oth==0 だと埋めても oth=1 で相手 claim 続行 → 阻止失敗、ボーナスなし
+        } else if (own === 3) {
+          // 相手 own=3, 空=2 (oth=0) のとき: ここに置くと own_opp=3, oth_opp=1 → 次手で claim 可能
+          // 相手 own=3, 空=1 (oth=1) のとき: ここに置くと oth=2 で完全阻止
+          if (oth === 1) bonus += w.threatBlock;       // 完全阻止
+          else if (oth === 0) bonus += w.threatBlock * 0.4; // 部分的に遅延
+        }
+      } else if (own === 2 && oth === 0) {
+        // 速攻ペア対策: 相手 own=2, oth=0 → 早期に切断
+        bonus += w.threatBlock * 0.15;
+      }
+    }
+  }
+  return bonus;
+}
+
 function pickRankW(state, color, index, w) {
   const cards = state.players[color].deck.filter((c) => !c.used);
   if (!cards.length) return null;
   const uniqueRanks = [...new Set(cards.map((c) => c.rank))];
   const opp = otherColor(color);
   const x = index % BOARD_SIZE, y = Math.floor(index / BOARD_SIZE);
+
+  const myRankCounts = countNearbyRanks(state, color, x, y);
+  const oppRankCounts = countNearbyRanks(state, opp, x, y);
+
   let bestRank = uniqueRanks[0], bestScore = -Infinity;
   for (const rank of uniqueRanks) {
     state.board[index] = { owner: color, rank };
     const my = evalCellWindows(state, color, x, y, w);
     const them = evalCellWindows(state, opp, x, y, w);
     state.board[index] = null;
-    const s = my - w.oppMul * them;
+    let s = my - w.oppMul * them;
+    // 自前ペア形成: 近隣に同rankの自色がある
+    const myNearby = myRankCounts.get(rank) || 0;
+    s += myNearby * w.pairBuildBonus;
+    // 相手にも同rankがある場合: 相手の役と重複させて相殺
+    const oppNearby = oppRankCounts.get(rank) || 0;
+    if (oppNearby > 0) s += w.oppRankAvoid;
+    // 残り枚数ボーナス: そのrankの残り枚数が多いほど将来ペア化しやすい
+    const remaining = cards.filter((c) => c.rank === rank).length;
+    s += remaining * w.rankReserve;
     if (s > bestScore) { bestScore = s; bestRank = rank; }
   }
   return cards.find((c) => c.rank === bestRank) || cards[0];
@@ -179,11 +256,13 @@ export function makeAgent(weights, opts = {}) {
         const x = idx % BOARD_SIZE, y = Math.floor(idx / BOARD_SIZE);
         const myBefore = evalCellWindows(state, me, x, y, weights);
         const oppBefore = evalCellWindows(state, opp, x, y, weights);
+        // 阻止スコアは「置く前」の相手脅威に対して計算
+        const block = threatBlockScore(state, opp, x, y, weights);
         state.board[idx] = { owner: me, rank: "X" };
         const myAfter = evalCellWindows(state, me, x, y, weights);
         const oppAfter = evalCellWindows(state, opp, x, y, weights);
         state.board[idx] = null;
-        const s = (myAfter - myBefore) - weights.oppMul * (oppAfter - oppBefore);
+        const s = (myAfter - myBefore) - weights.oppMul * (oppAfter - oppBefore) + block;
         if (s > bestScore) { bestScore = s; bestIdx = idx; }
       }
       const card = pickRankW(state, state.turn, bestIdx, weights);

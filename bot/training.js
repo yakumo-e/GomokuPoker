@@ -44,6 +44,26 @@ function playMatchSync(blackW, redW, maxMoves, distMax, keepHistory = false) {
   return { winner: state.winner, history };
 }
 
+function playDemoBoard(blackW, redW, maxMoves, distMax) {
+  const state = createGame();
+  const black = makeAgent(blackW, { distMax });
+  const red = makeAgent(redW, { distMax });
+  let placed = 0, safety = 200;
+  while (!isTerminal(state) && safety-- > 0 && placed < maxMoves) {
+    const agent = state.turn === "black" ? black : red;
+    const action = agent(state);
+    if (!action) break;
+    applyAction(state, action);
+    if (action.type === "place") placed += 1;
+  }
+  finalize(state);
+  return {
+    board: state.board.map((c) => c ? { owner: c.owner, rank: c.rank } : null),
+    winner: state.winner ? { color: state.winner.color, reason: state.winner.reason } : null,
+    placed,
+  };
+}
+
 function score(winner, asColor) {
   if (!winner) return 0;
   if (winner.color === "draw") return 0.5;
@@ -119,10 +139,15 @@ export async function train(opts, hooks = {}) {
     })).sort((a, b) => b.win - a.win);
     const best = pop[ranked[0].idx];
     const bestWin = ranked[0].win;
-    history.push({ gen, bestWin, ranked: ranked.slice(0, 5), best: { ...best } });
+
+    // デモ対局: 最良 vs 第2位 (同位なら最良の自己対戦)。最終盤面を記録
+    const secondIdx = ranked[1] ? ranked[1].idx : ranked[0].idx;
+    const demoBoard = playDemoBoard(best, pop[secondIdx], maxMoves, distMax);
+
+    history.push({ gen, bestWin, ranked: ranked.slice(0, 5), best: { ...best }, demoBoard });
 
     if (hooks.onGeneration) {
-      await hooks.onGeneration({ gen, ranked, best, bestWin, history, sigmaGen });
+      await hooks.onGeneration({ gen, ranked, best, bestWin, history, sigmaGen, demoBoard });
     }
 
     if (gen === generations - 1 || shouldStop()) break;
