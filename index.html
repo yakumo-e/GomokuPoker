@@ -19,10 +19,42 @@
           <p>5マスラインに自分のカードが4枚以上、相手が1枚までなら宣言できます。</p>
           <p>宣言された側は1枚置いてから必ず応戦宣言します。役を比べて勝敗を決めます。</p>
         </div>
-        <div class="status-panel">
-          <span id="connectionStatus">オフライン</span>
-          <strong id="turnLabel">黒の番</strong>
-          <span id="turnTimer" class="turn-timer" aria-live="polite"></span>
+        <div class="mode-panel" aria-label="モード選択">
+          <div class="mode-row">
+            <select id="modeSelect">
+              <option value="local">vs 対人</option>
+              <option value="cpu" selected>vs CPU</option>
+              <option value="room">ルーム</option>
+            </select>
+            <button id="startButton" type="button" class="start-button">開始</button>
+          </div>
+          <div id="connectionStatus" class="conn-status">オフライン</div>
+          <div id="roomPanel" class="sub-panel" hidden>
+            <div class="room-actions">
+              <button id="createRoomButton" type="button">部屋を作る</button>
+            </div>
+            <div class="join-row">
+              <input id="roomCodeInput" autocomplete="off" spellcheck="false" placeholder="例: AB12CD">
+              <button id="joinRoomButton" type="button">参加</button>
+            </div>
+            <p id="roomInfo" class="muted">部屋を作るか、コードを入れて参加。</p>
+          </div>
+          <div id="testPanel" class="sub-panel" hidden>
+            <p class="muted" style="margin-bottom: 6px;">テストモード</p>
+            <label class="field-label" for="testWeightsFile">CPU 重みファイル (差し替え)</label>
+            <input id="testWeightsFile" type="file" accept=".json,application/json">
+            <p id="testWeightsStatus" class="muted">埋め込みデフォルトを使用中</p>
+            <div class="test-rules">
+              <p class="muted">実験ルール</p>
+              <label><input type="checkbox" id="ruleNoCenterFirst"> 黒の初手は中央3×3を禁止</label>
+              <label><input type="checkbox" id="ruleStrictClaim"> 宣言条件: 自分5枚かつ相手0枚のみ</label>
+              <label><input type="checkbox" id="ruleResponseDouble" disabled> 応戦時に赤が2枚連続配置 (未実装)</label>
+            </div>
+          </div>
+          <div class="mode-buttons">
+            <button id="resetButton" type="button">盤面リセット</button>
+            <button id="acceptResetButton" type="button" hidden>リセットに同意</button>
+          </div>
         </div>
       </section>
 
@@ -30,46 +62,11 @@
         <aside class="side-panel">
           <div class="pixel-card score-card">
             <h2>カード</h2>
-            <div class="player-strip black">
-              <span>黒 残り</span>
-              <strong id="blackDeckCount">26</strong>
-            </div>
-            <div class="player-strip red">
-              <span>赤 残り</span>
-              <strong id="redDeckCount">26</strong>
-            </div>
-            <div id="hand" class="hand" aria-label="カード一覧"></div>
             <div class="turn-actions">
               <button id="declareButton" class="declare-button" type="button">宣言</button>
               <button id="passButton" class="pass-button" type="button">相手にターンを渡す</button>
             </div>
-          </div>
-
-          <div class="pixel-card">
-            <h2>対戦</h2>
-            <div class="room-actions">
-              <button id="newLocalButton" type="button">ローカル開始</button>
-              <button id="createRoomButton" type="button">部屋を作る</button>
-              <button id="resetButton" type="button">盤面リセット</button>
-              <button id="acceptResetButton" type="button" hidden>リセットに同意</button>
-            </div>
-            <label class="field-label" for="opponentSelect">対戦相手 (ローカル時)</label>
-            <select id="opponentSelect">
-              <option value="human">人 vs 人</option>
-              <option value="cpu-easy">vs CPU(弱)</option>
-              <option value="cpu-normal" selected>vs CPU(普通)</option>
-              <option value="cpu-strong">vs CPU(強)</option>
-              <option value="cpu-trained">vs CPU(学習版)</option>
-            </select>
-            <label class="field-label" for="trainedWeightsFile">学習済み重み (cpu-trained 用)</label>
-            <input id="trainedWeightsFile" type="file" accept=".json,application/json">
-            <p id="trainedWeightsStatus" class="muted" style="font-size: 11px; margin-top: 4px;">未指定</p>
-            <label class="field-label" for="roomCodeInput">部屋コード</label>
-            <div class="join-row">
-              <input id="roomCodeInput" autocomplete="off" spellcheck="false" placeholder="例: AB12CD">
-              <button id="joinRoomButton" type="button">参加</button>
-            </div>
-            <p id="roomInfo" class="muted">Firebase設定を入れるとオンライン対戦できます。</p>
+            <div id="hand" class="hand" aria-label="カード一覧"></div>
           </div>
         </aside>
 
@@ -79,12 +76,16 @@
 
         <aside class="side-panel">
           <div class="pixel-card">
-            <h2>ログ</h2>
-            <ol id="log" class="log"></ol>
+            <h2>宣言状況</h2>
+            <div class="turn-indicator">
+              <strong id="turnLabel">黒の番</strong>
+              <span id="turnTimer" class="turn-timer" aria-live="polite"></span>
+            </div>
+            <div id="bestHand" class="best-hand">まだ宣言できる役はありません。</div>
           </div>
           <div class="pixel-card">
-            <h2>宣言状況</h2>
-            <div id="bestHand" class="best-hand">まだ宣言できる役はありません。</div>
+            <h2>ログ</h2>
+            <ol id="log" class="log"></ol>
           </div>
         </aside>
       </section>

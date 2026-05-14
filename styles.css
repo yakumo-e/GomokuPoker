@@ -139,6 +139,94 @@ h2 {
   min-width: 150px;
 }
 
+.mode-panel {
+  display: grid;
+  gap: 8px;
+  min-width: 260px;
+  max-width: 320px;
+}
+
+.mode-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+}
+
+.mode-row select {
+  background: #111218;
+  color: var(--ink);
+  border: 3px solid var(--shadow);
+  padding: 8px;
+  font: inherit;
+}
+
+.start-button {
+  background: var(--green);
+  padding: 8px 14px;
+}
+
+.conn-status {
+  font-size: 12px;
+  color: var(--muted);
+  text-align: right;
+}
+
+.sub-panel {
+  background: var(--panel-2);
+  border: 2px solid var(--shadow);
+  padding: 8px;
+  display: grid;
+  gap: 6px;
+}
+
+.sub-panel .room-actions {
+  grid-template-columns: 1fr;
+}
+
+.sub-panel input[type="text"],
+.sub-panel input:not([type]) {
+  background: #111218;
+  color: var(--ink);
+}
+
+.test-rules {
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.test-rules label {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.mode-buttons {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.mode-buttons button {
+  padding: 6px 8px;
+  font-size: 12px;
+  background: #d98a3a;
+}
+
+.turn-indicator {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+  border-bottom: 2px solid var(--line);
+}
+
+.turn-indicator strong {
+  font-size: 20px;
+  color: var(--green);
+}
+
 #turnLabel {
   color: var(--green);
 }

@@ -15,7 +15,10 @@ const els = {
   bestHand: document.querySelector("#bestHand"),
   declareButton: document.querySelector("#declareButton"),
   passButton: document.querySelector("#passButton"),
-  newLocalButton: document.querySelector("#newLocalButton"),
+  startButton: document.querySelector("#startButton"),
+  modeSelect: document.querySelector("#modeSelect"),
+  roomPanel: document.querySelector("#roomPanel"),
+  testPanel: document.querySelector("#testPanel"),
   createRoomButton: document.querySelector("#createRoomButton"),
   joinRoomButton: document.querySelector("#joinRoomButton"),
   resetButton: document.querySelector("#resetButton"),
@@ -23,25 +26,21 @@ const els = {
   roomCodeInput: document.querySelector("#roomCodeInput"),
   roomInfo: document.querySelector("#roomInfo"),
   connectionStatus: document.querySelector("#connectionStatus"),
-  blackDeckCount: document.querySelector("#blackDeckCount"),
-  redDeckCount: document.querySelector("#redDeckCount"),
   turnTimer: document.querySelector("#turnTimer"),
-  opponentSelect: document.querySelector("#opponentSelect"),
-  trainedWeightsFile: document.querySelector("#trainedWeightsFile"),
-  trainedWeightsStatus: document.querySelector("#trainedWeightsStatus"),
+  testWeightsFile: document.querySelector("#testWeightsFile"),
+  testWeightsStatus: document.querySelector("#testWeightsStatus"),
+  ruleNoCenterFirst: document.querySelector("#ruleNoCenterFirst"),
+  ruleStrictClaim: document.querySelector("#ruleStrictClaim"),
 };
 
-const CPU_PRESETS = {
-  easy:   { iterations: 25,  topK: 4 },
-  normal: { iterations: 80,  topK: 6 },
-  strong: { iterations: 200, topK: 8 },
-};
 let cpuColor = null;          // "red" if CPU is active, else null
-let cpuLevel = "normal";
 let cpuThinking = false;
 let cpuModule = null;         // lazy-loaded ./bot/cpu.js
-let policyModule = null;      // lazy-loaded ./bot/policy.js
-let trainedWeights = null;    // 学習済み重み (cpu-trained 用)
+let testModeUnlocked = false; // 隠しキーで開放
+const experimentalRules = {
+  noCenterFirst: false,
+  strictClaim: false,
+};
 
 let firebaseApi = null;
 let roomRef = null;
@@ -70,30 +69,43 @@ async function init() {
   els.joinRoomButton.disabled = !firebaseApi;
 }
 
+function syncModePanel() {
+  const mode = els.modeSelect.value;
+  els.roomPanel.hidden = mode !== "room";
+  els.testPanel.hidden = mode !== "test";
+}
+
+function unlockTestMode() {
+  if (testModeUnlocked) return;
+  testModeUnlocked = true;
+  const opt = document.createElement("option");
+  opt.value = "test";
+  opt.textContent = "テストモード";
+  els.modeSelect.appendChild(opt);
+  logMessage("テストモードが選択肢に追加されました。");
+}
+
 function wireEvents() {
-  els.newLocalButton.addEventListener("click", async () => {
+  els.modeSelect.addEventListener("change", syncModePanel);
+  syncModePanel();
+
+  els.startButton.addEventListener("click", async () => {
+    const mode = els.modeSelect.value;
+    if (mode === "room") {
+      // ルームモード: 部屋を作る/参加するボタンが下に出る。開始ボタンは何もしない
+      els.roomPanel.hidden = false;
+      return;
+    }
     leaveRoom();
     localPlayer = "black";
     selectedCardId = null;
     state = createGame();
     resetEventTracking();
-    const opp = els.opponentSelect ? els.opponentSelect.value : "human";
-    if (opp === "cpu-trained") {
-      if (!trainedWeights) {
-        logMessage("学習済み重みファイルが未指定です。「学習済み重み」欄から選択してください。");
-        cpuColor = null;
-        render();
-        return;
-      }
+    if (mode === "cpu" || mode === "test") {
       cpuColor = "red";
-      cpuLevel = "trained";
-      await ensurePolicyLoaded();
-      logMessage(`ローカル対戦開始: 黒=あなた / 赤=CPU(学習版)。`);
-    } else if (opp.startsWith("cpu-")) {
-      cpuColor = "red";
-      cpuLevel = opp.slice(4);
       await ensureCpuLoaded();
-      logMessage(`ローカル対戦開始: 黒=あなた / 赤=CPU(${cpuLevel})。`);
+      const tag = mode === "test" ? "テスト" : "学習版";
+      logMessage(`ローカル対戦開始: 黒=あなた / 赤=CPU(${tag})。`);
     } else {
       cpuColor = null;
       logMessage("ローカル対戦を開始しました。");
@@ -109,24 +121,33 @@ function wireEvents() {
   els.resetButton.addEventListener("click", requestReset);
   els.acceptResetButton.addEventListener("click", acceptReset);
 
-  if (els.trainedWeightsFile) {
-    els.trainedWeightsFile.addEventListener("change", async (e) => {
+  // テストモード: CPU 重みファイル差し替え
+  if (els.testWeightsFile) {
+    els.testWeightsFile.addEventListener("change", async (e) => {
       const file = e.target.files?.[0];
       if (!file) return;
       try {
         const text = await file.text();
         const parsed = JSON.parse(text);
         if (typeof parsed !== "object" || !parsed) throw new Error("不正なJSON");
-        trainedWeights = parsed;
-        els.trainedWeightsStatus.textContent = `読み込み済: ${file.name}`;
-        els.trainedWeightsStatus.style.color = "var(--green)";
+        await ensureCpuLoaded();
+        cpuModule.setCpuWeights(parsed);
+        els.testWeightsStatus.textContent = `読み込み済: ${file.name}`;
+        els.testWeightsStatus.style.color = "var(--green)";
       } catch (err) {
-        els.trainedWeightsStatus.textContent = "エラー: " + err.message;
-        els.trainedWeightsStatus.style.color = "var(--red)";
-        trainedWeights = null;
+        els.testWeightsStatus.textContent = "エラー: " + err.message;
+        els.testWeightsStatus.style.color = "var(--red)";
       }
     });
   }
+
+  // 実験ルールのチェックボックス
+  els.ruleNoCenterFirst?.addEventListener("change", (e) => {
+    experimentalRules.noCenterFirst = e.target.checked;
+  });
+  els.ruleStrictClaim?.addEventListener("change", (e) => {
+    experimentalRules.strictClaim = e.target.checked;
+  });
 
   // ブラウザの音声制限解除：最初のユーザー操作で AudioContext を起こす
   const unlock = () => {
@@ -137,6 +158,14 @@ function wireEvents() {
   };
   window.addEventListener("click", unlock);
   window.addEventListener("keydown", unlock);
+
+  // 隠しキー: Ctrl+Shift+T でテストモード開放
+  window.addEventListener("keydown", (e) => {
+    if (e.ctrlKey && e.shiftKey && (e.key === "T" || e.key === "t")) {
+      e.preventDefault();
+      unlockTestMode();
+    }
+  });
 }
 
 async function initFirebase() {
@@ -404,8 +433,6 @@ function renderInfo() {
   const forced = isForcedDeclarationTurn(color);
 
   els.turnLabel.textContent = turnText();
-  els.blackDeckCount.textContent = remainingCount("black");
-  els.redDeckCount.textContent = remainingCount("red");
   els.declareButton.textContent = forced ? "応戦宣言" : "宣言";
   els.declareButton.disabled = !canDeclare();
   els.passButton.disabled = !canPass();
@@ -505,6 +532,18 @@ async function placeCard(index) {
   const player = state.players[color];
   const card = player.deck.find((c) => c.id === selectedCardId);
   if (!card || card.used) return;
+
+  // 実験ルール: 黒の初手は中央 3×3 禁止
+  if (experimentalRules.noCenterFirst && color === "black"
+      && state.board.every((c) => !c)) {
+    const x = index % BOARD_SIZE, y = Math.floor(index / BOARD_SIZE);
+    const cx = Math.floor(BOARD_SIZE / 2);
+    if (Math.abs(x - cx) <= 1 && Math.abs(y - cx) <= 1) {
+      logMessage("実験ルール: 黒の初手は中央3×3禁止です。別のマスを選んでください。");
+      render();
+      return;
+    }
+  }
 
   card.used = true;
   state.board[index] = { owner: color, rank: card.rank };
@@ -608,6 +647,10 @@ function findClaimLines(color) {
 function isClaimableLine(cells, color) {
   const own = cells.filter((cell) => cell.owner === color).length;
   const opponent = cells.length - own;
+  if (experimentalRules.strictClaim) {
+    // 実験ルール: 自分5枚かつ相手0枚のみ
+    return own === 5 && opponent === 0;
+  }
   return own >= 4 && opponent <= 1;
 }
 
@@ -837,12 +880,6 @@ async function ensureCpuLoaded() {
   return cpuModule;
 }
 
-async function ensurePolicyLoaded() {
-  if (policyModule) return policyModule;
-  policyModule = await import("./bot/policy.js");
-  return policyModule;
-}
-
 function isCpuTurn() {
   return Boolean(cpuColor && state.mode === "local" && !state.winner && state.turn === cpuColor);
 }
@@ -856,14 +893,9 @@ async function maybeRunCpuTurn() {
     render();
     let action = null;
     try {
-      if (cpuLevel === "trained" && policyModule && trainedWeights) {
-        const agent = policyModule.makeAgent(trainedWeights, { distMax: 3 });
-        action = agent(state);
-        // 学習版は同期で速いので、思考感を演出
-        await new Promise((r) => setTimeout(r, 300));
-      } else {
-        action = await cpuModule.cpuThink(state, CPU_PRESETS[cpuLevel] || CPU_PRESETS.normal);
-      }
+      action = await cpuModule.cpuThink(state);
+      // 学習版は速いので思考感を演出
+      await new Promise((r) => setTimeout(r, 200));
     } catch (e) {
       console.error("CPU error", e);
     } finally {
@@ -872,7 +904,6 @@ async function maybeRunCpuTurn() {
     if (!action) { render(); return; }
     applyCpuAction(action);
     render();
-    // 行動間に少し間を空けてプレイ感を出す
     await new Promise((r) => setTimeout(r, 250));
   }
 }
