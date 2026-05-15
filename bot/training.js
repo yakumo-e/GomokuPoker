@@ -16,8 +16,12 @@ function crossover(a, b) {
   return out;
 }
 
-function playMatchSync(blackW, redW, maxMoves, distMax, keepHistory = false) {
+function playMatchSync(blackW, redW, maxMoves, distMax, keepHistory = false, rules = null) {
   const state = createGame();
+  if (rules) {
+    state.testRules = { ...rules };
+    state.testMode = !!(rules.responseDouble || rules.strictClaim);
+  }
   const black = makeAgent(blackW, { distMax });
   const red = makeAgent(redW, { distMax });
   let placed = 0, safety = 200;
@@ -44,8 +48,12 @@ function playMatchSync(blackW, redW, maxMoves, distMax, keepHistory = false) {
   return { winner: state.winner, history };
 }
 
-function playDemoBoard(blackW, redW, maxMoves, distMax) {
+function playDemoBoard(blackW, redW, maxMoves, distMax, rules = null) {
   const state = createGame();
+  if (rules) {
+    state.testRules = { ...rules };
+    state.testMode = !!(rules.responseDouble || rules.strictClaim);
+  }
   const black = makeAgent(blackW, { distMax });
   const red = makeAgent(redW, { distMax });
   let placed = 0, safety = 200;
@@ -82,6 +90,7 @@ export async function train(opts, hooks = {}) {
     fromRandom = true,
     eliteKeep = 2,
     seedWeights = null,
+    rules = null,
   } = opts;
 
   let pop = [];
@@ -119,7 +128,7 @@ export async function train(opts, hooks = {}) {
         if (shouldStop()) break;
         for (let m = 0; m < matchesPerPair; m += 1) {
           // 黒=i, 赤=j
-          const { winner } = playMatchSync(pop[i], pop[j], maxMoves, distMax);
+          const { winner } = playMatchSync(pop[i], pop[j], maxMoves, distMax, false, rules);
           fitness[i] += score(winner, "black");
           fitness[j] += score(winner, "red");
           games[i] += 1;
@@ -142,7 +151,7 @@ export async function train(opts, hooks = {}) {
 
     // デモ対局: 最良 vs 第2位 (同位なら最良の自己対戦)。最終盤面を記録
     const secondIdx = ranked[1] ? ranked[1].idx : ranked[0].idx;
-    const demoBoard = playDemoBoard(best, pop[secondIdx], maxMoves, distMax);
+    const demoBoard = playDemoBoard(best, pop[secondIdx], maxMoves, distMax, rules);
 
     history.push({ gen, bestWin, ranked: ranked.slice(0, 5), best: { ...best }, demoBoard });
 
@@ -185,6 +194,7 @@ export async function benchmark(opts, hooks = {}) {
     maxMoves = 40,
     distMax = 2,
     keepHistory = false,
+    rules = null,
   } = opts;
   const A = normalizeWeights(weightsA);
   const B = normalizeWeights(weightsB);
@@ -200,7 +210,7 @@ export async function benchmark(opts, hooks = {}) {
     const aIsBlack = i < halfGames;
     const blackW = aIsBlack ? A : B;
     const redW = aIsBlack ? B : A;
-    const { winner, history } = playMatchSync(blackW, redW, maxMoves, distMax, keepHistory);
+    const { winner, history } = playMatchSync(blackW, redW, maxMoves, distMax, keepHistory, rules);
     const w = winner?.color;
     if (keepHistory) {
       histories.push({

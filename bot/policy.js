@@ -164,42 +164,75 @@ function countNearbyRanks(state, color, x, y, distMax = 2) {
   return counts;
 }
 
-// 相手の near-claim 脅威: (x,y) を通る 5-窓のうち、相手 own>=3 かつ 阻止可能なもの
+// 相手の near-claim 脅威: (x,y) を通る 5-窓のうち、相手 own>=3 かつ 阻止可能なもの。
+// 役潜在 (2ペア / 3ペア / ストレート) も検出し、序盤から切断インセンティブを与える。
 function threatBlockScore(state, opp, x, y, w) {
   let bonus = 0;
   const board = state.board;
   for (const [dx, dy] of DIRS) {
     for (let off = -4; off <= 0; off += 1) {
       let own = 0, oth = 0, invalid = false, candidateInWindow = false;
+      const oppRanks = [];
       for (let s = 0; s < 5; s += 1) {
         const nx = x + dx * (off + s), ny = y + dy * (off + s);
         if (nx < 0 || ny < 0 || nx >= BOARD_SIZE || ny >= BOARD_SIZE) { invalid = true; break; }
         if (nx === x && ny === y) candidateInWindow = true;
         const c = board[ny * BOARD_SIZE + nx];
         if (c) {
-          if (c.owner === opp) own += 1;
+          if (c.owner === opp) { own += 1; oppRanks.push(c.rank); }
           else oth += 1;
         }
       }
       if (invalid || !candidateInWindow) continue;
-      // 候補マスは空 (これから置く)。相手 own と 既存oth を見て、置いた結果 oth+1 で阻止できるか判定
-      // 置いた後: opp_own=own, opp_oth=oth+1
-      // 阻止判定: oth+1 >= 2 で相手の主張不能 (own4-claim の場合は手遅れ)
-      if (own >= 3) {
-        // 相手 own=4: もう手遅れ (相手 own=4, oth<=1 で claim 可能)
-        if (own === 4) {
-          // 唯一の阻止は oth=2 になること。oth==1 なら手遅れ、oth==0 ならここで oth=1 になり相手 claim 可
-          if (oth >= 1) bonus += w.threatBlock * 2; // 既に阻止済みエリアを更にカバー
-          // oth==0 だと埋めても oth=1 で相手 claim 続行 → 阻止失敗、ボーナスなし
-        } else if (own === 3) {
-          // 相手 own=3, 空=2 (oth=0) のとき: ここに置くと own_opp=3, oth_opp=1 → 次手で claim 可能
-          // 相手 own=3, 空=1 (oth=1) のとき: ここに置くと oth=2 で完全阻止
-          if (oth === 1) bonus += w.threatBlock;       // 完全阻止
-          else if (oth === 0) bonus += w.threatBlock * 0.4; // 部分的に遅延
-        }
+
+      // 既存ロジック: own>=3 の即時脅威
+      if (own === 4) {
+        if (oth >= 1) bonus += w.threatBlock * 2;
+      } else if (own === 3) {
+        if (oth === 1) bonus += w.threatBlock;
+        else if (oth === 0) bonus += w.threatBlock * 0.5;
       } else if (own === 2 && oth === 0) {
-        // 速攻ペア対策: 相手 own=2, oth=0 → 早期に切断
-        bonus += w.threatBlock * 0.15;
+        bonus += w.threatBlock * 0.18;
+      }
+
+      // 追加: 役潜在検出 (oth が少なくこのラインで相手が役を作れる場合)
+      if (oth <= 1 && own >= 2) {
+        const counts = new Map();
+        for (const r of oppRanks) counts.set(r, (counts.get(r) || 0) + 1);
+        const vals = [...counts.values()];
+        const maxSame = Math.max(...vals);
+        const pairsCount = vals.filter((v) => v >= 2).length;
+        // 2ペア潜在: 既に1ペア + 残り別rank。次にもう1枚別rankでペア完成しそう。
+        if (pairsCount === 1 && own >= 2 && own <= 3) {
+          // 2ペア完成寸前 → 切断
+          bonus += w.threatBlock * 0.35;
+        }
+        if (pairsCount >= 2) {
+          // 既に2ペア相当 → 必ず切る
+          bonus += w.threatBlock * 0.9;
+        }
+        // ストレート潜在: own>=2 で連続rank兆候 (同rankなし、range<=4)
+        if (maxSame === 1 && own >= 2) {
+          const values = oppRanks.map((r) => {
+            if (r === "A") return 1;
+            if (r === "J") return 11;
+            if (r === "Q") return 12;
+            if (r === "K") return 13;
+            return Number(r);
+          }).sort((a, b) => a - b);
+          let straight = false;
+          if (values[values.length - 1] - values[0] <= 4) straight = true;
+          // A=1 を 14 として再確認 (10-J-Q-K-A)
+          if (values[0] === 1 && values.length > 1) {
+            const alt = [...values.slice(1), 14].sort((a, b) => a - b);
+            if (alt[alt.length - 1] - alt[0] <= 4) straight = true;
+          }
+          if (straight) {
+            // ストレート潜在 → 連続rank妨害
+            if (own === 3) bonus += w.threatBlock * 0.45;
+            else bonus += w.threatBlock * 0.22;
+          }
+        }
       }
     }
   }

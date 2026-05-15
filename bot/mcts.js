@@ -16,6 +16,7 @@ function cloneState(state) {
     placedThisTurn: state.placedThisTurn,
     moveCount: state.moveCount,
     testMode: state.testMode || false,
+    testRules: state.testRules ? { ...state.testRules } : null,
     board: state.board.map((c) => c ? { ...c } : null),
     players: {
       black: { deck: state.players.black.deck.map((c) => ({ ...c })) },

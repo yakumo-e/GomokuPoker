@@ -84,6 +84,7 @@ export function compareHands(a, b) {
 
 export function findClaimLines(state, color) {
   const lines = [];
+  const strict = !!state.testRules?.strictClaim;
   for (let y = 0; y < BOARD_SIZE; y += 1) {
     for (let x = 0; x < BOARD_SIZE; x += 1) {
       for (const [dx, dy] of DIRECTIONS) {
@@ -98,7 +99,9 @@ export function findClaimLines(state, color) {
         }
         if (cells.length === 5) {
           const own = cells.filter((c) => c.owner === color).length;
-          if (own >= 4 && cells.length - own <= 1) lines.push(cells);
+          const opp = cells.length - own;
+          const claimable = strict ? (own === 5 && opp === 0) : (own >= 4 && opp <= 1);
+          if (claimable) lines.push(cells);
         }
       }
     }
@@ -190,7 +193,8 @@ export function applyAction(state, action) {
 
     if (!state.challenge) {
       const responder = otherColor(action.color);
-      const target = (state.testMode && responder === "red") ? 2 : 1;
+      const rd = state.testRules?.responseDouble ?? state.testMode;
+      const target = (rd && responder === "red") ? 2 : 1;
       state.challenge = {
         startedBy: action.color,
         responsePlaced: 0,

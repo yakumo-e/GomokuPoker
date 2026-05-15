@@ -48,6 +48,7 @@ export function cpuThink(state) {
       players: state.players,
       history: state.history || [],
       testMode: state.testMode || false,
+      testRules: state.testRules || null,
     }));
     ensureWorker().postMessage({ id, state: snapshot, weights: currentWeights });
   });
