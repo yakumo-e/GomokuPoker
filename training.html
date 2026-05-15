@@ -42,6 +42,10 @@
         <label>エリート保存数 <input id="trElite" type="number" value="2" min="0" max="8"></label>
         <label><input id="trFromRandom" type="checkbox" checked> ランダム初期化 (offで現在値開始)</label>
       </div>
+      <div class="tr-controls" style="margin-top: 6px;">
+        <label><input id="trRuleResponseDouble" type="checkbox"> ルール: 応戦時に赤が2枚連続配置</label>
+        <label><input id="trRuleStrictClaim" type="checkbox"> ルール: 自分5枚必須 (相手0枚)</label>
+      </div>
       <div class="tr-row" style="align-items: center;">
         <label style="display: inline-grid; gap: 4px; font-size: 12px; color: var(--muted);">
           シード重み (任意): 既存JSONから継続学習
@@ -152,6 +156,10 @@
           fromRandom: $("trFromRandom").checked,
           seedWeights,
           sigmaEnd: $("trSigmaEnd").value === "" ? null : Number($("trSigmaEnd").value),
+          rules: {
+            responseDouble: $("trRuleResponseDouble").checked,
+            strictClaim: $("trRuleStrictClaim").checked,
+          },
         };
 
         const t0 = performance.now();

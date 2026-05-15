@@ -39,6 +39,13 @@ const els = {
   passwordError: document.querySelector("#passwordError"),
   roomTestModeWrap: document.querySelector("#roomTestModeWrap"),
   roomTestMode: document.querySelector("#roomTestMode"),
+  roomTestRulesWrap: document.querySelector("#roomTestRulesWrap"),
+  roomRuleResponseDouble: document.querySelector("#roomRuleResponseDouble"),
+  roomRuleStrictClaim: document.querySelector("#roomRuleStrictClaim"),
+  customRoomCodeInput: document.querySelector("#customRoomCodeInput"),
+  testStartButton: document.querySelector("#testStartButton"),
+  startBlackButton: document.querySelector("#startBlackButton"),
+  startRedButton: document.querySelector("#startRedButton"),
 };
 
 const TEST_PASSWORD = "GOMOKU";
@@ -131,11 +138,20 @@ function relocateTestPanel() {
   const scoreCard = document.querySelector(".score-card");
   if (!sidePanel || !scoreCard) return;
   if (els.testPanel.parentElement === sidePanel) return;
-  // 移動 + 表示
   els.testPanel.parentElement?.removeChild(els.testPanel);
   els.testPanel.removeAttribute("hidden");
   els.testPanel.style.borderColor = "var(--gold)";
   scoreCard.insertAdjacentElement("afterend", els.testPanel);
+  // テスト対戦開始ボタンを表示
+  if (els.testStartButton) els.testStartButton.hidden = false;
+  // modeSelect から「テストモード」オプションを除去
+  const opt = els.modeSelect.querySelector('option[value="test"]');
+  if (opt) {
+    if (els.modeSelect.value === "test") els.modeSelect.value = "cpu";
+    opt.remove();
+  }
+  // ルームモーダル内のテストモード設定UIを開放
+  if (els.roomTestModeWrap) els.roomTestModeWrap.hidden = false;
 }
 
 function showPasswordModal() {
@@ -270,6 +286,43 @@ function wireEvents() {
     experimentalRules.strictClaim = e.target.checked;
   });
 
+  // ルームモーダルのテストモードチェックで内側ルールを開閉
+  if (els.roomTestMode) {
+    els.roomTestMode.addEventListener("change", (e) => {
+      if (els.roomTestRulesWrap) els.roomTestRulesWrap.hidden = !e.target.checked;
+    });
+  }
+
+  // テスト対戦開始ボタン (relocate 後の test panel 内)
+  if (els.testStartButton) {
+    els.testStartButton.addEventListener("click", async () => {
+      leaveRoom();
+      localPlayer = "black";
+      selectedCardId = null;
+      state = createGame();
+      state.testMode = true;
+      state.testRules = {
+        responseDouble: !!els.ruleResponseDouble?.checked,
+        strictClaim: !!els.ruleStrictClaim?.checked,
+      };
+      resetEventTracking();
+      cpuColor = "red";
+      await ensureCpuLoaded();
+      logMessage(`テスト対戦開始 (CPU vs 黒) / ルール: ${describeTestRules(state.testRules)}`);
+      syncModePanel();
+      render();
+      maybeRunCpuTurn();
+    });
+  }
+
+  // 先手/後手 開始ボタン (カード欄、ローカル/ルームの開始前用)
+  if (els.startBlackButton) {
+    els.startBlackButton.addEventListener("click", () => handleColorStartChoice("black"));
+  }
+  if (els.startRedButton) {
+    els.startRedButton.addEventListener("click", () => handleColorStartChoice("red"));
+  }
+
   // ブラウザの音声制限解除：最初のユーザー操作で AudioContext を起こす
   const unlock = () => {
     const ctx = getAudio();
@@ -342,6 +395,7 @@ function createGame(overrides = {}) {
     placedThisTurn: false,
     resetRequest: null,
     testMode: false,
+    testRules: null,
     board: Array.from({ length: BOARD_SIZE * BOARD_SIZE }, () => null),
     players: {
       black: { uid: null, deck: createDeck("black") },
@@ -364,7 +418,55 @@ function forcedPlaceTarget() {
 }
 
 function responseTargetFor(state, responder) {
-  return (state.testMode && responder === "red") ? 2 : 1;
+  const rd = state.testRules?.responseDouble ?? state.testMode;
+  return (rd && responder === "red") ? 2 : 1;
+}
+
+function describeTestRules(rules) {
+  if (!rules) return "—";
+  const parts = [];
+  if (rules.responseDouble) parts.push("赤2枚応戦");
+  if (rules.strictClaim) parts.push("5枚必須");
+  return parts.length ? parts.join(" / ") : "標準";
+}
+
+function handleColorStartChoice(color) {
+  if (state.mode === "local") {
+    // cpuColor を反転 (color が黒なら人=黒/CPU=赤、color が赤なら人=赤/CPU=黒)
+    if (cpuColor) {
+      cpuColor = color === "black" ? "red" : "black";
+      localPlayer = color;
+      logMessage(`${colorName(color)}を選択しました。`);
+      render();
+      maybeRunCpuTurn();
+    } else {
+      // 人vs人ローカル: localPlayer 変更だけ (実質意味なし、ホットシート)
+      localPlayer = color;
+      logMessage(`${colorName(color)}側からプレイします。`);
+      render();
+    }
+    return;
+  }
+  if (state.mode === "online") {
+    // 開始前(まだ駒なし) 限定。両プレイヤーの uid を入れ替え
+    if (state.board.some((c) => c)) return;
+    if (!firebaseApi) return;
+    if (state.players.black.uid !== firebaseApi.uid && state.players.red.uid !== firebaseApi.uid) return;
+    const myColor = state.players.black.uid === firebaseApi.uid ? "black" : "red";
+    if (myColor === color) return; // 既にその色
+    // 両者の uid を swap
+    const a = state.players.black.uid;
+    state.players.black.uid = state.players.red.uid;
+    state.players.red.uid = a;
+    localPlayer = color;
+    logMessage(`色を入れ替えました (${colorName(color)}側)。`);
+    syncState();
+    render();
+  }
+}
+
+function gameNotStarted() {
+  return !state.winner && !state.board.some((c) => c);
 }
 
 function createDeck(owner) {
@@ -567,6 +669,25 @@ function renderInfo() {
   els.declareButton.disabled = !canDeclare();
   els.passButton.disabled = !canPass();
   renderResetControls();
+  // 開始前の色選択ボタン: 駒なし + 勝者なし のとき表示
+  const showStartButtons = gameNotStarted() && (state.mode === "online" || cpuColor);
+  if (els.startBlackButton && els.startRedButton) {
+    els.startBlackButton.hidden = !showStartButtons;
+    els.startRedButton.hidden = !showStartButtons;
+    // 既に自分の色が決まっている場合、その色のボタンは無効化
+    if (showStartButtons) {
+      const myCol = state.mode === "online"
+        ? (state.players.black.uid === firebaseApi?.uid ? "black" : (state.players.red.uid === firebaseApi?.uid ? "red" : null))
+        : (cpuColor === "red" ? "black" : "red");
+      els.startBlackButton.disabled = myCol === "black";
+      els.startRedButton.disabled = myCol === "red";
+    }
+    // 開始前は宣言/パスボタン無効
+    if (showStartButtons) {
+      els.declareButton.disabled = true;
+      els.passButton.disabled = true;
+    }
+  }
 
   if (state.winner) {
     els.bestHand.textContent = resultText();
@@ -791,10 +912,9 @@ function findClaimLines(color) {
 function isClaimableLine(cells, color) {
   const own = cells.filter((cell) => cell.owner === color).length;
   const opponent = cells.length - own;
-  if (experimentalRules.strictClaim) {
-    // 実験ルール: 自分5枚かつ相手0枚のみ
-    return own === 5 && opponent === 0;
-  }
+  // ローカル実験ルール、または state.testRules.strictClaim 何れかでオン
+  const strict = experimentalRules.strictClaim || !!state.testRules?.strictClaim;
+  if (strict) return own === 5 && opponent === 0;
   return own >= 4 && opponent <= 1;
 }
 
@@ -867,13 +987,44 @@ async function createOnlineRoom() {
     els.roomInfo.textContent = "テストモード未起動です。";
     return;
   }
+  // 任意キー
+  let code = (els.customRoomCodeInput?.value || "").trim().toUpperCase();
+  if (code) {
+    if (!/^[A-Z0-9]{4,8}$/.test(code)) {
+      els.roomInfo.textContent = "任意キーは英数字4〜8文字で入力してください。";
+      return;
+    }
+    // 既存室との衝突確認
+    try {
+      const ref = firebaseApi.doc(firebaseApi.db, "rooms", code);
+      const snap = await firebaseApi.getDoc(ref);
+      if (snap.exists()) {
+        els.roomInfo.textContent = `「${code}」は既に存在します。別のキーを試すか参加してください。`;
+        return;
+      }
+    } catch (e) { /* 読めなくても続行 */ }
+  } else {
+    code = makeRoomCode();
+  }
+  // 先手/後手 ラジオ
+  const colorChoice = document.querySelector('input[name="roomColor"]:checked')?.value || "black";
   leaveRoom();
   state = createGame();
   state.mode = "online";
-  state.roomCode = makeRoomCode();
-  state.players.black.uid = firebaseApi.uid;
+  state.roomCode = code;
+  if (colorChoice === "black") {
+    state.players.black.uid = firebaseApi.uid;
+  } else {
+    state.players.red.uid = firebaseApi.uid;
+  }
   state.testMode = wantTest;
-  localPlayer = "black";
+  if (wantTest) {
+    state.testRules = {
+      responseDouble: !!els.roomRuleResponseDouble?.checked,
+      strictClaim: !!els.roomRuleStrictClaim?.checked,
+    };
+  }
+  localPlayer = colorChoice;
   selectedCardId = null;
   resetEventTracking();
   roomRef = firebaseApi.doc(firebaseApi.db, "rooms", state.roomCode);

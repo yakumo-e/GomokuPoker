@@ -31,16 +31,28 @@
           </div>
           <div id="connectionStatus" class="conn-status">オフライン</div>
           <div id="roomPanel" class="sub-panel" hidden>
-            <div class="room-actions">
+            <label class="field-label" for="customRoomCodeInput">任意キー (空で自動)</label>
+            <div class="join-row">
+              <input id="customRoomCodeInput" autocomplete="off" spellcheck="false" placeholder="4〜8文字 英数字" maxlength="8">
               <button id="createRoomButton" type="button">部屋を作る</button>
             </div>
+            <label class="field-label" for="roomCodeInput">既存の部屋に参加</label>
             <div class="join-row">
               <input id="roomCodeInput" autocomplete="off" spellcheck="false" placeholder="例: AB12CD">
               <button id="joinRoomButton" type="button">参加</button>
             </div>
-            <label id="roomTestModeWrap" hidden style="display: block; margin-top: 10px; font-size: 12px; color: var(--gold);">
-              <input type="checkbox" id="roomTestMode"> テストモード部屋として作成 (起動者同士のみ)
+            <label id="roomColorWrap" style="display: block; margin-top: 10px; font-size: 12px;">
+              作成時の色:
+              <label><input type="radio" name="roomColor" value="black" checked> 先手(黒)</label>
+              <label><input type="radio" name="roomColor" value="red"> 後手(赤)</label>
             </label>
+            <label id="roomTestModeWrap" hidden style="display: block; margin-top: 10px; font-size: 12px; color: var(--gold);">
+              <input type="checkbox" id="roomTestMode"> テストモード部屋として作成
+            </label>
+            <div id="roomTestRulesWrap" hidden style="margin-left: 16px; font-size: 11px; color: var(--muted);">
+              <label><input type="checkbox" id="roomRuleResponseDouble" checked> 応戦時に赤が2枚連続配置</label><br>
+              <label><input type="checkbox" id="roomRuleStrictClaim"> 自分5枚必須 (相手0枚)</label>
+            </div>
             <p id="roomInfo" class="muted">部屋を作るか、コードを入れて参加。</p>
           </div>
           <div id="testPanel" class="sub-panel" hidden>
@@ -52,8 +64,9 @@
               <p class="muted">実験ルール</p>
               <label><input type="checkbox" id="ruleNoCenterFirst"> 黒の初手は中央3×3を禁止</label>
               <label><input type="checkbox" id="ruleStrictClaim"> 宣言条件: 自分5枚かつ相手0枚のみ</label>
-              <label><input type="checkbox" id="ruleResponseDouble" checked> 応戦時に赤が2枚連続配置 (テストモード自動)</label>
+              <label><input type="checkbox" id="ruleResponseDouble" checked> 応戦時に赤が2枚連続配置</label>
             </div>
+            <button id="testStartButton" type="button" hidden style="background: var(--green); margin-top: 8px;">テスト対戦開始 (vs CPU)</button>
           </div>
           <div class="mode-buttons">
             <button id="resetButton" type="button">盤面リセット</button>
@@ -67,6 +80,8 @@
           <div class="pixel-card score-card">
             <h2>カード</h2>
             <div class="turn-actions">
+              <button id="startBlackButton" class="declare-button" type="button" hidden>先手で開始</button>
+              <button id="startRedButton" class="pass-button" type="button" hidden>後手で開始</button>
               <button id="declareButton" class="declare-button" type="button">宣言</button>
               <button id="passButton" class="pass-button" type="button">相手にターンを渡す</button>
             </div>
