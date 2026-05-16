@@ -79,9 +79,12 @@
         <aside class="side-panel">
           <div class="pixel-card score-card">
             <h2>カード</h2>
+            <div class="start-actions" id="startActions" hidden>
+              <button id="chooseBlackButton" class="declare-button" type="button">先手</button>
+              <button id="chooseRedButton" class="pass-button" type="button">後手</button>
+              <button id="confirmStartButton" type="button" style="background: var(--gold);">開始</button>
+            </div>
             <div class="turn-actions">
-              <button id="startBlackButton" class="declare-button" type="button" hidden>先手で開始</button>
-              <button id="startRedButton" class="pass-button" type="button" hidden>後手で開始</button>
               <button id="declareButton" class="declare-button" type="button">宣言</button>
               <button id="passButton" class="pass-button" type="button">相手にターンを渡す</button>
             </div>

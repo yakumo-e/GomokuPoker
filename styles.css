@@ -109,23 +109,23 @@ input {
 .app-shell {
   width: min(1440px, 100%);
   margin: 0 auto;
-  padding: 20px;
+  padding: 6px 16px 12px;
 }
 
 .topbar,
 .pixel-card {
   border: 4px solid var(--shadow);
   background: var(--panel);
-  box-shadow: 6px 6px 0 var(--shadow);
+  box-shadow: 4px 4px 0 var(--shadow);
 }
 
 .topbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 24px;
-  padding: 16px;
-  margin-bottom: 20px;
+  gap: 18px;
+  padding: 8px 14px;
+  margin-bottom: 10px;
   flex-wrap: wrap;
 }
 
@@ -134,19 +134,19 @@ input {
 }
 
 .rules-block {
-  flex: 1 1 360px;
+  flex: 1 1 320px;
   border-left: 3px solid var(--line);
-  padding-left: 20px;
+  padding-left: 14px;
   display: grid;
-  gap: 4px;
+  gap: 2px;
   color: var(--muted);
-  font-size: 13px;
-  line-height: 1.5;
+  font-size: 11px;
+  line-height: 1.35;
 }
 
 .rules-block h2 {
-  font-size: 14px;
-  margin-bottom: 4px;
+  font-size: 12px;
+  margin-bottom: 2px;
   color: var(--ink);
 }
 
@@ -167,15 +167,17 @@ p {
 }
 
 h1 {
-  font-size: clamp(28px, 5vw, 54px);
+  font-size: clamp(20px, 3vw, 32px);
   line-height: 1;
   letter-spacing: 0;
 }
 
 h2 {
-  font-size: 18px;
-  margin-bottom: 12px;
+  font-size: 15px;
+  margin-bottom: 6px;
 }
+
+.eyebrow { font-size: 11px; }
 
 .status-panel {
   display: grid;
@@ -186,32 +188,32 @@ h2 {
 
 .mode-panel {
   display: grid;
-  gap: 8px;
-  min-width: 260px;
+  gap: 4px;
+  min-width: 240px;
   max-width: 320px;
 }
 
 .mode-row {
   display: grid;
   grid-template-columns: 1fr auto;
-  gap: 8px;
+  gap: 6px;
 }
 
 .mode-row select {
   background: #111218;
   color: var(--ink);
   border: 3px solid var(--shadow);
-  padding: 8px;
+  padding: 6px;
   font: inherit;
 }
 
 .start-button {
   background: var(--green);
-  padding: 8px 14px;
+  padding: 6px 12px;
 }
 
 .conn-status {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--muted);
   text-align: right;
 }
@@ -219,9 +221,10 @@ h2 {
 .sub-panel {
   background: var(--panel-2);
   border: 2px solid var(--shadow);
-  padding: 8px;
+  padding: 6px;
   display: grid;
-  gap: 6px;
+  gap: 4px;
+  font-size: 12px;
 }
 
 .sub-panel .room-actions {
@@ -261,14 +264,14 @@ h2 {
 
 .turn-indicator {
   display: grid;
-  gap: 4px;
-  margin-bottom: 10px;
-  padding-bottom: 8px;
+  gap: 2px;
+  margin-bottom: 6px;
+  padding-bottom: 4px;
   border-bottom: 2px solid var(--line);
 }
 
 .turn-indicator strong {
-  font-size: 20px;
+  font-size: 16px;
   color: var(--green);
 }
 
@@ -313,7 +316,18 @@ h2 {
 }
 
 .pixel-card {
-  padding: 16px;
+  padding: 10px 12px;
+}
+
+.start-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.start-actions button {
+  padding: 6px 8px;
+  font-size: 13px;
 }
 
 .room-actions,
@@ -440,17 +454,18 @@ h2 {
 
 .hand {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
-  min-height: 256px;
-  max-height: 340px;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 4px;
+  min-height: 100px;
+  max-height: 180px;
   overflow: auto;
-  margin: 14px 0;
+  margin: 8px 0;
 }
 
 .card-button {
-  min-height: 42px;
-  padding: 6px 4px;
+  min-height: 30px;
+  padding: 4px 2px;
+  font-size: 12px;
   background: #f6ead0;
   color: #17110c;
 }
@@ -518,18 +533,21 @@ h2 {
 
 .log {
   display: grid;
-  gap: 8px;
-  max-height: 360px;
+  gap: 4px;
+  max-height: 200px;
   overflow: auto;
   padding-left: 20px;
   margin: 0;
-  line-height: 1.45;
+  line-height: 1.35;
+  font-size: 12px;
+  scroll-behavior: smooth;
 }
 
 .best-hand {
   color: var(--gold);
-  min-height: 72px;
-  line-height: 1.5;
+  min-height: 36px;
+  line-height: 1.4;
+  font-size: 13px;
 }
 
 @media (max-width: 1000px) {

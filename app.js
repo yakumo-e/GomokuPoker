@@ -44,9 +44,13 @@ const els = {
   roomRuleStrictClaim: document.querySelector("#roomRuleStrictClaim"),
   customRoomCodeInput: document.querySelector("#customRoomCodeInput"),
   testStartButton: document.querySelector("#testStartButton"),
-  startBlackButton: document.querySelector("#startBlackButton"),
-  startRedButton: document.querySelector("#startRedButton"),
+  startActions: document.querySelector("#startActions"),
+  chooseBlackButton: document.querySelector("#chooseBlackButton"),
+  chooseRedButton: document.querySelector("#chooseRedButton"),
+  confirmStartButton: document.querySelector("#confirmStartButton"),
 };
+
+let startConfirmed = false; // 「開始」ボタンを押したか
 
 const TEST_PASSWORD = "GOMOKU";
 const TEST_UNLOCK_KEY = "gp-test-unlocked-v1";
@@ -137,21 +141,15 @@ function relocateTestPanel() {
   const sidePanel = document.querySelector(".side-panel");
   const scoreCard = document.querySelector(".score-card");
   if (!sidePanel || !scoreCard) return;
-  if (els.testPanel.parentElement === sidePanel) return;
-  els.testPanel.parentElement?.removeChild(els.testPanel);
-  els.testPanel.removeAttribute("hidden");
-  els.testPanel.style.borderColor = "var(--gold)";
-  scoreCard.insertAdjacentElement("afterend", els.testPanel);
-  // テスト対戦開始ボタンを表示
-  if (els.testStartButton) els.testStartButton.hidden = false;
-  // modeSelect から「テストモード」オプションを除去
-  const opt = els.modeSelect.querySelector('option[value="test"]');
-  if (opt) {
-    if (els.modeSelect.value === "test") els.modeSelect.value = "cpu";
-    opt.remove();
+  if (els.testPanel.parentElement !== sidePanel) {
+    els.testPanel.parentElement?.removeChild(els.testPanel);
+    els.testPanel.removeAttribute("hidden");
+    els.testPanel.style.borderColor = "var(--gold)";
+    scoreCard.insertAdjacentElement("afterend", els.testPanel);
   }
-  // ルームモーダル内のテストモード設定UIを開放
+  if (els.testStartButton) els.testStartButton.hidden = false;
   if (els.roomTestModeWrap) els.roomTestModeWrap.hidden = false;
+  // modeSelect の test オプションは残す
 }
 
 function showPasswordModal() {
@@ -185,14 +183,15 @@ function showPasswordModal() {
 }
 
 async function ensureTestModeUnlocked() {
-  if (testModeUnlocked) return true;
+  // 毎回パスワード入力。成功すると即起動 (testModeUnlocked は当該セッションで保持)
   const ok = await showPasswordModal();
   if (ok) {
+    const firstTime = !testModeUnlocked;
     testModeUnlocked = true;
     persistTestModeUnlock();
     relocateTestPanel();
     if (els.roomTestModeWrap) els.roomTestModeWrap.hidden = false;
-    logMessage("テストモードが起動されました。");
+    if (firstTime) logMessage("テストモードが起動されました。");
     render();
   }
   return ok;
@@ -237,6 +236,7 @@ function wireEvents() {
     state = createGame();
     if (mode === "test") state.testMode = true;
     resetEventTracking();
+    resetStartFlow();
     if (mode === "cpu" || mode === "test") {
       cpuColor = "red";
       await ensureCpuLoaded();
@@ -306,6 +306,7 @@ function wireEvents() {
         strictClaim: !!els.ruleStrictClaim?.checked,
       };
       resetEventTracking();
+    resetStartFlow();
       cpuColor = "red";
       await ensureCpuLoaded();
       logMessage(`テスト対戦開始 (CPU vs 黒) / ルール: ${describeTestRules(state.testRules)}`);
@@ -315,12 +316,20 @@ function wireEvents() {
     });
   }
 
-  // 先手/後手 開始ボタン (カード欄、ローカル/ルームの開始前用)
-  if (els.startBlackButton) {
-    els.startBlackButton.addEventListener("click", () => handleColorStartChoice("black"));
+  // 先手/後手/開始 3ボタン
+  if (els.chooseBlackButton) {
+    els.chooseBlackButton.addEventListener("click", () => handleColorStartChoice("black"));
   }
-  if (els.startRedButton) {
-    els.startRedButton.addEventListener("click", () => handleColorStartChoice("red"));
+  if (els.chooseRedButton) {
+    els.chooseRedButton.addEventListener("click", () => handleColorStartChoice("red"));
+  }
+  if (els.confirmStartButton) {
+    els.confirmStartButton.addEventListener("click", () => {
+      startConfirmed = true;
+      logMessage("対局を開始しました。");
+      render();
+      maybeRunCpuTurn();
+    });
   }
 
   // ブラウザの音声制限解除：最初のユーザー操作で AudioContext を起こす
@@ -466,7 +475,7 @@ function handleColorStartChoice(color) {
 }
 
 function gameNotStarted() {
-  return !state.winner && !state.board.some((c) => c);
+  return !state.winner && !state.board.some((c) => c) && !startConfirmed;
 }
 
 function createDeck(owner) {
@@ -527,6 +536,10 @@ function detectEvents() {
   prevTurn = curTurn;
   prevChallengeBy = curChallengeBy;
   prevWinner = curWinner;
+}
+
+function resetStartFlow() {
+  startConfirmed = false;
 }
 
 function resetEventTracking() {
@@ -669,21 +682,20 @@ function renderInfo() {
   els.declareButton.disabled = !canDeclare();
   els.passButton.disabled = !canPass();
   renderResetControls();
-  // 開始前の色選択ボタン: 駒なし + 勝者なし のとき表示
+  // 開始前: 先手/後手/開始 の3ボタン表示。駒なし + 勝者なし + 未confirm
   const showStartButtons = gameNotStarted() && (state.mode === "online" || cpuColor);
-  if (els.startBlackButton && els.startRedButton) {
-    els.startBlackButton.hidden = !showStartButtons;
-    els.startRedButton.hidden = !showStartButtons;
-    // 既に自分の色が決まっている場合、その色のボタンは無効化
+  if (els.startActions) {
+    els.startActions.hidden = !showStartButtons;
+  }
+  if (els.chooseBlackButton && els.chooseRedButton) {
     if (showStartButtons) {
+      // 自分の現在の色: 該当色ボタンは disable
       const myCol = state.mode === "online"
         ? (state.players.black.uid === firebaseApi?.uid ? "black" : (state.players.red.uid === firebaseApi?.uid ? "red" : null))
         : (cpuColor === "red" ? "black" : "red");
-      els.startBlackButton.disabled = myCol === "black";
-      els.startRedButton.disabled = myCol === "red";
-    }
-    // 開始前は宣言/パスボタン無効
-    if (showStartButtons) {
+      els.chooseBlackButton.disabled = myCol === "black";
+      els.chooseRedButton.disabled = myCol === "red";
+      // 開始前は宣言/パス無効
       els.declareButton.disabled = true;
       els.passButton.disabled = true;
     }
@@ -705,10 +717,14 @@ function renderInfo() {
   }
 
   els.log.innerHTML = "";
-  state.log.slice(-12).forEach((entry) => {
+  state.log.slice(-40).forEach((entry) => {
     const item = document.createElement("li");
     item.textContent = entry;
     els.log.append(item);
+  });
+  // 最新ログが見えるよう自動スクロール
+  requestAnimationFrame(() => {
+    els.log.scrollTop = els.log.scrollHeight;
   });
 }
 
@@ -1085,6 +1101,7 @@ async function joinOnlineRoom() {
     }
     selectedCardId = null;
     resetEventTracking();
+    resetStartFlow();
     subscribeRoom();
     els.roomInfo.textContent = `部屋コード: ${code} / あなたは${colorName(localPlayer)}です。`;
     render();
@@ -1147,6 +1164,7 @@ async function requestReset() {
   if (state.mode === "local") {
     state = createGame();
     selectedCardId = null;
+    resetStartFlow();
     logMessage("盤面をリセットしました。");
     render();
     return;
@@ -1163,10 +1181,15 @@ async function acceptReset() {
   const blackUid = state.players.black.uid;
   const redUid = state.players.red.uid;
   const code = state.roomCode;
+  const prevTestMode = state.testMode;
+  const prevTestRules = state.testRules ? { ...state.testRules } : null;
   state = createGame({ mode: "online", roomCode: code });
   state.players.black.uid = blackUid;
   state.players.red.uid = redUid;
+  state.testMode = prevTestMode;
+  state.testRules = prevTestRules;
   selectedCardId = null;
+  resetStartFlow();
   logMessage("双方の同意で盤面をリセットしました。");
   render();
   syncState();
